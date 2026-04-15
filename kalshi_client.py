@@ -91,11 +91,16 @@ class KalshiClient:
 
     def get_all_markets(self, sport_filter: list = None) -> list:
         """
-        Fetch all open Kalshi markets, with optional keyword filtering.
+        Fetch all open Kalshi markets with a tradeable YES price.
 
-        Uses limit=1000 per page (Kalshi max) to minimise API round-trips.
-        Client-side filtering by close_time keeps only markets that expire
-        within MAX_HOURS_TO_CLOSE, so strategy.py only sees live/near-end games.
+        Key insight: Kalshi's close_time does NOT correlate with "game in
+        progress" — active live-game markets close days away, while markets
+        closing in the next few hours are already settled (price = 0 or 1).
+        We therefore skip the time filter entirely and instead rely on the
+        price-based endgame detection in strategy.py.
+
+        Performance: limit=1000 per page (Kalshi max) reduces round-trips
+        from ~313 pages (limit=200) to ~62 pages.
 
         Args:
             sport_filter: Optional list of keywords to filter titles
@@ -104,11 +109,6 @@ class KalshiClient:
         Returns a list of market dicts with price and metadata.
         """
         import time as _time
-
-        now = datetime.datetime.utcnow()
-        close_window = now + datetime.timedelta(hours=config.MAX_HOURS_TO_CLOSE)
-        close_window_str = close_window.strftime("%Y-%m-%dT%H:%M:%SZ")
-        now_str = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         markets = []
         cursor = None
@@ -125,10 +125,14 @@ class KalshiClient:
             pages += 1
 
             for m in batch:
-                close_time = m.get("close_time", "")
-
-                # Client-side close_time filter: only keep near-closing markets
-                if close_time and (close_time < now_str or close_time > close_window_str):
+                # Skip markets with no tradeable price (settled or empty)
+                ask_raw = m.get("yes_ask_dollars") or m.get("yes_ask") or 0
+                try:
+                    ask_f = float(ask_raw)
+                except (ValueError, TypeError):
+                    ask_f = 0.0
+                # Keep only markets with an active YES price (2¢ – 98¢)
+                if not (0.02 <= ask_f <= 0.98):
                     continue
 
                 if sport_filter:
@@ -144,9 +148,8 @@ class KalshiClient:
 
         elapsed = _time.time() - t0
         logger.info(
-            f"Market fetch: {len(markets)} qualifying markets "
-            f"(scanned {pages} pages in {elapsed:.1f}s, "
-            f"window=next {config.MAX_HOURS_TO_CLOSE}h)"
+            f"Market fetch: {len(markets)} tradeable markets "
+            f"(scanned {pages} pages in {elapsed:.1f}s)"
         )
         return markets
 
