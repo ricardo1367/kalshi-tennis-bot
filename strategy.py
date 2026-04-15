@@ -60,61 +60,54 @@ class BetOpportunity:
 # ─────────────────────────────────────────────
 
 def is_endgame(
-    kalshi_yes_price_cents: int,
     sport_key: str,
-    close_time_str: str = "",
+    commence_time_str: str,
 ) -> tuple[bool, str]:
     """
-    Determine whether a game is in its final phase using two signals:
+    Determine whether a game is in its final phase using elapsed wall-clock
+    time since the game started (Pinnacle's commence_time).
 
-    Signal 1 — Market price level:
-      Each sport has a calibrated threshold. When the YES price exceeds that
-      threshold, it strongly indicates one team is near-certain to win, which
-      typically only happens in the final minutes/period of a game.
+    This is INDEPENDENT of market price — price is only used for the ≥70%
+    probability check in evaluate_market(). Separating these two concerns
+    prevents pre-game favorites from falsely triggering the endgame filter.
 
-      Sport-specific thresholds (all configured in config.py):
-        NFL  82¢ → 4th quarter, 3+ score lead, clock running out
-        NBA  80¢ → Final ~5 minutes, clear lead
-        MLB  78¢ → 7th inning or later
-        NHL  83¢ → Final ~5 min, 2-goal lead
-        Soccer 87¢ → 75th+ min, 2-goal lead
-        Tennis 72¢ → Serving for match / final-set tiebreak
-        MMA  80¢ → Final round with clear dominance
-        Default 80¢ → Generic fallback
-
-    Signal 2 — Time to market close:
-      If the market expires within MAX_HOURS_TO_CLOSE hours, the event
-      is physically near its end. This catches cases where price alone
-      might not signal end-game (e.g. a tied game in the final minute).
+    Sport-specific thresholds (wall-clock minutes from kickoff):
+      ⚽ Soccer      90 min  → ~75th minute of play (after 15 min halftime)
+      🏒 Hockey      86 min  → Final 10 min of 3rd period
+      ⚾ MLB        140 min  → 8th inning (7 full innings × ~20 min avg)
+      🏀 NBA        110 min  → 4th quarter, ~10 min remaining
+      🏈 NFL        175 min  → 4th quarter, last 5 min
+      🎾 Tennis      90 min  → Final set well underway
+      🥊 MMA         20 min  → Final round
 
     Returns (is_endgame: bool, reason: str)
     """
-    price = kalshi_yes_price_cents / 100.0
-    leading_side_price = max(price, 1 - price)  # whichever side is ahead
+    if not commence_time_str:
+        return False, "no commence_time available — cannot determine game phase"
 
-    # Get sport-specific threshold
-    threshold = config.ENDGAME_PRICE_THRESHOLDS.get(
-        sport_key, config.ENDGAME_PRICE_THRESHOLDS["default"]
+    try:
+        commence_time = datetime.fromisoformat(commence_time_str.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        elapsed_minutes = (now - commence_time).total_seconds() / 60
+    except (ValueError, TypeError):
+        return False, f"could not parse commence_time: {commence_time_str!r}"
+
+    threshold = config.ENDGAME_ELAPSED_MINUTES.get(
+        sport_key, config.ENDGAME_ELAPSED_MINUTES["default"]
     )
 
-    # Signal 1: price threshold
-    if leading_side_price >= threshold:
-        return True, f"price {leading_side_price:.0%} ≥ {threshold:.0%} threshold for {sport_key}"
+    if elapsed_minutes < 0:
+        return False, f"game hasn't started yet ({abs(elapsed_minutes):.0f} min from now)"
 
-    # Signal 2: close time proximity
-    if close_time_str:
-        try:
-            close_time = datetime.fromisoformat(close_time_str.replace("Z", "+00:00"))
-            now = datetime.now(timezone.utc)
-            hours_remaining = (close_time - now).total_seconds() / 3600
-            if 0 < hours_remaining <= config.MAX_HOURS_TO_CLOSE:
-                return True, f"market closes in {hours_remaining:.1f}h (≤ {config.MAX_HOURS_TO_CLOSE}h)"
-        except (ValueError, TypeError):
-            pass
+    if elapsed_minutes >= threshold:
+        return True, (
+            f"{elapsed_minutes:.0f} min elapsed ≥ {threshold} min threshold "
+            f"for {sport_key}"
+        )
 
     return False, (
-        f"price {leading_side_price:.0%} < {threshold:.0%} threshold "
-        f"for {sport_key} — game not near end"
+        f"{elapsed_minutes:.0f} of {threshold} min elapsed for {sport_key} "
+        f"— {threshold - elapsed_minutes:.0f} min until endgame window"
     )
 
 
@@ -164,7 +157,7 @@ def evaluate_market(
     bankroll: float,
     open_positions: int,
     sport_key: str = "default",
-    close_time_str: str = "",
+    commence_time_str: str = "",   # Pinnacle's game start time (used for endgame check)
     existing_position_side: str = None,  # "yes", "no", or None
 ) -> BetOpportunity | None:
     """
@@ -236,9 +229,7 @@ def evaluate_market(
         )
 
     # ── Rule 3: end-game check ────────────────────────────────────
-    endgame, endgame_reason = is_endgame(
-        kalshi_yes_price_cents, sport_key, close_time_str
-    )
+    endgame, endgame_reason = is_endgame(sport_key, commence_time_str)
     if not endgame:
         return reject(f"not end-game: {endgame_reason}")
 
@@ -296,7 +287,7 @@ def evaluate_market_watchlist(
     kalshi_yes_price_cents: int,
     sharp_prob_yes: float,
     sport_key: str = "default",
-    close_time_str: str = "",
+    commence_time_str: str = "",   # Pinnacle's game start time
     pinnacle_match: str = "",
 ) -> NearMiss | None:
     """
@@ -330,9 +321,7 @@ def evaluate_market_watchlist(
     edge_gap = max(0.0, config.MIN_EDGE - edge)
 
     # Endgame check
-    endgame, endgame_reason = is_endgame(
-        kalshi_yes_price_cents, sport_key, close_time_str
-    )
+    endgame, endgame_reason = is_endgame(sport_key, commence_time_str)
 
     # Determine what's blocking a real bet
     if side_prob < config.MIN_WIN_PROBABILITY:
