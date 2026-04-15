@@ -85,6 +85,8 @@ class KalshiClient:
                 time.sleep(wait)
                 headers = self._sign_request("GET", path)  # fresh timestamp
                 continue
+            if not resp.ok:
+                logger.error(f"GET {path} → {resp.status_code}: {resp.text[:500]}")
             resp.raise_for_status()
             return resp.json()
         resp.raise_for_status()
@@ -101,6 +103,8 @@ class KalshiClient:
                 time.sleep(wait)
                 headers = self._sign_request("POST", path)
                 continue
+            if not resp.ok:
+                logger.error(f"POST {path} → {resp.status_code}: {resp.text[:500]}")
             resp.raise_for_status()
             return resp.json()
         resp.raise_for_status()
@@ -223,14 +227,20 @@ class KalshiClient:
             )
             return {"status": "dry_run", "ticker": ticker}
 
+        # Kalshi API: for a YES order supply yes_price; for NO supply no_price.
+        # yes_price + no_price must equal 100 — we compute the complement but
+        # only pass the field that matches the side to avoid any ambiguity.
+        yes_price = limit_price if side == "yes" else 100 - limit_price
+        no_price  = 100 - yes_price
+
         body = {
             "ticker": ticker,
             "action": "buy",
             "type": "limit",
             "side": side,
             "count": count,
-            "yes_price": limit_price if side == "yes" else 100 - limit_price,
-            "no_price": limit_price if side == "no" else 100 - limit_price,
+            "yes_price": yes_price,
+            "no_price":  no_price,
         }
 
         logger.info(
