@@ -325,6 +325,12 @@ def run_scan_cycle(
 # ─────────────────────────────────────────────
 
 def run():
+    # ── Kill switch (redundant safety check — workflow if: condition is primary) ──
+    trading_enabled = os.environ.get("TRADING_ENABLED", "true").lower()
+    if trading_enabled == "false":
+        logger.warning("🛑 TRADING_ENABLED=false — bot is paused. No bets will be placed.")
+        return
+
     logger.info("=" * 60)
     logger.info(f"Kalshi Sports Bot | DEMO={config.DEMO_MODE} | "
                 f"Poll every {config.POLL_INTERVAL_SECONDS}s "
