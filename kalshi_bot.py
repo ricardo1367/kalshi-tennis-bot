@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 import config
 from kalshi_client import KalshiClient
 from odds_client import OddsClient
-from strategy import evaluate_market, BetOpportunity
+from strategy import evaluate_market, evaluate_market_watchlist, BetOpportunity, NearMiss
 
 # ─────────────────────────────────────────────
 # LOGGING
@@ -233,17 +233,17 @@ def run_scan_cycle(
     pinnacle_odds: list,
     all_markets: list,      # pre-fetched market list (passed in, not re-fetched)
     cycle_num: int,
-) -> tuple[int, float]:
+) -> tuple[int, float, list]:
     """
     Run one full scan of all Kalshi markets.
-    Returns (bets_placed, updated_bankroll).
+    Returns (bets_placed, updated_bankroll, near_misses).
     """
     cycle_start = time.time()
     logger.info(f"─── Scan cycle #{cycle_num} ───────────────────────────────")
 
     if not all_markets:
         logger.info("No qualifying markets found on Kalshi.")
-        return 0, bankroll
+        return 0, bankroll, []
 
     # Fetch current open positions (for conflict detection)
     position_map = build_position_map(kalshi)
@@ -253,6 +253,7 @@ def run_scan_cycle(
     bets_placed = 0
     evaluated = 0
     matched = 0
+    near_misses: list[NearMiss] = []
 
     for market in all_markets:
         ticker = market.get("ticker", "")
@@ -301,6 +302,18 @@ def run_scan_cycle(
         )
 
         if not opportunity:
+            # Check if this market is close to triggering (watchlist)
+            near = evaluate_market_watchlist(
+                ticker=ticker,
+                title=title,
+                kalshi_yes_price_cents=yes_ask,
+                sharp_prob_yes=match_data["sharp_prob_yes"],
+                sport_key=sport_key,
+                close_time_str=close_time,
+                pinnacle_match=match_data.get("pinnacle_match", ""),
+            )
+            if near:
+                near_misses.append(near)
             continue
 
         # Place the bet
@@ -335,9 +348,10 @@ def run_scan_cycle(
     logger.info(
         f"Cycle #{cycle_num} done in {cycle_secs:.1f}s | "
         f"markets={len(all_markets)} evaluated={evaluated} "
-        f"matched={matched} bets={bets_placed}"
+        f"matched={matched} bets={bets_placed} "
+        f"watchlist={len(near_misses)}"
     )
-    return bets_placed, bankroll
+    return bets_placed, bankroll, near_misses
 
 
 # ─────────────────────────────────────────────
@@ -407,16 +421,18 @@ def run():
     start_time = time.time()
     total_bets = 0
     cycle = 1
+    latest_watchlist: list = []   # near-misses from most recent cycle
 
     while True:
         elapsed = time.time() - start_time
         if elapsed >= config.POLL_DURATION_SECONDS:
             break
 
-        bets, bankroll = run_scan_cycle(
+        bets, bankroll, near_misses = run_scan_cycle(
             kalshi, odds_client, bankroll, pinnacle_odds, all_markets, cycle
         )
         total_bets += bets
+        latest_watchlist = near_misses   # keep most recent snapshot
         cycle += 1
 
         # Wait for next interval (unless we're about to time out)
@@ -426,6 +442,43 @@ def run():
             time.sleep(config.POLL_INTERVAL_SECONDS)
         else:
             break
+
+    # ── Write watchlist to bet log artifact ─────────────────────────
+    # The bet log JSON is picked up by the dashboard. We append a
+    # "watchlist" key so the dashboard can show near-miss opportunities.
+    if latest_watchlist:
+        import json as _json
+        watchlist_path = os.path.join(config.BET_LOG_DIR, "watchlist.json")
+        os.makedirs(config.BET_LOG_DIR, exist_ok=True)
+        watchlist_data = {
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "bankroll": round(bankroll, 2),
+            "items": [
+                {
+                    "ticker":       nm.ticker,
+                    "title":        nm.title,
+                    "sport_key":    nm.sport_key,
+                    "pinnacle_match": nm.pinnacle_match,
+                    "sharp_prob":   nm.sharp_prob,
+                    "kalshi_price": nm.kalshi_price,
+                    "edge":         nm.edge,
+                    "prob_gap":     nm.prob_gap,
+                    "edge_gap":     nm.edge_gap,
+                    "endgame":      nm.endgame,
+                    "blocking_rule": nm.blocking_rule,
+                }
+                for nm in sorted(latest_watchlist,
+                                  key=lambda x: x.sharp_prob, reverse=True)[:20]
+            ],
+        }
+        with open(watchlist_path, "w") as f:
+            _json.dump(watchlist_data, f, indent=2)
+        # Also emit as a single parseable line so the dashboard can extract it
+        # from the GitHub Actions run log without needing to unzip an artifact.
+        logger.info(f"WATCHLIST_JSON:{_json.dumps(watchlist_data)}")
+        logger.info(f"Watchlist: {len(latest_watchlist)} near-misses → {watchlist_path}")
+    else:
+        logger.info("Watchlist: 0 near-misses this job")
 
     logger.info("=" * 60)
     logger.info(
