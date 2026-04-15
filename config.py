@@ -60,61 +60,101 @@ MIN_WIN_PROBABILITY = float(os.getenv("MIN_WIN_PROBABILITY", "0.70"))   # 70% mi
 MIN_EDGE = float(os.getenv("MIN_EDGE", "0.03"))   # Lowered to 3% since probability filter is strict
 
 # ─────────────────────────────────────────────
-# END-GAME ONLY SETTINGS
+# END-GAME DETECTION — TIME BASED
 #
 # The bot only bets when a game is in its final phase.
-# We detect "end of game" using:
-#   1. The Kalshi market price (high price = one side heavily favored = near end)
-#   2. Sport-specific market close time proximity
+# Endgame is determined purely by wall-clock minutes elapsed since
+# the game started (Pinnacle's commence_time), NOT by market price.
 #
-# Each sport has a "late-game price threshold" — the minimum YES/NO price
-# that indicates the game is nearly over. These are calibrated per sport
-# based on typical scoring patterns and volatility:
+# Price is ONLY used for the ≥70% probability check.
+# This prevents a heavy pre-game favorite from falsely triggering
+# the endgame filter — a game must be physically near its end.
 #
-#   NFL:     0.82  → Roughly 4th quarter, 3+ score lead
-#   NBA:     0.80  → Final 5 min, clear lead
-#   MLB:     0.78  → 7th inning stretch or later
-#   NHL:     0.83  → Final 5 min, 2-goal lead (hockey swings fast)
-#   Soccer:  0.87  → 75th min+, 2-goal lead (very hard to overcome)
-#   Tennis:  0.72  → Serving for the match / final set tiebreak
-#   MMA:     0.80  → Final round, clear dominance
-#   Boxing:  0.80  → Final rounds, points lead
-#   Default: 0.80  → Generic threshold for other sports
+# Thresholds are wall-clock minutes from kickoff/puck-drop/tip-off:
+#
+#  ⚽ Soccer (90 min + 15 min halftime):
+#     Bet from ~75th minute of play.
+#     Wall clock: 45 + 15 (halftime) + 30 = 90 min → 75th game minute
+#
+#  🏒 Hockey (3 × 20 min + 2 × 18 min intermissions):
+#     Final 10 min of 3rd period.
+#     Wall clock: 20 + 18 + 20 + 18 + 10 = 86 min
+#
+#  ⚾ MLB (9 innings, ~20 min/inning avg):
+#     8th inning (7 full innings done).
+#     Wall clock: 7 × 20 = 140 min
+#
+#  🏀 NBA (4 × 12 min play + stoppages + halftime):
+#     4th quarter, ~10 min remaining.
+#     Wall clock: ~110 min from tip-off
+#
+#  🏈 NFL (4 × 15 min play + stoppages, ~3.5 hr game):
+#     4th quarter, last 5 minutes.
+#     Wall clock: ~175 min from kickoff
+#
+#  🎾 Tennis (set-based, variable):
+#     Final set well underway — conservative 90 min threshold.
+#
+#  🥊 MMA (5 rounds × 5 min or 3 × 5 min):
+#     Final round.
+#     Wall clock: 20 min (covers both 3-round and 5-round)
 # ─────────────────────────────────────────────
-ENDGAME_PRICE_THRESHOLDS = {
-    "americanfootball_nfl":    0.82,
-    "americanfootball_ncaaf":  0.80,
-    "basketball_nba":          0.80,
-    "basketball_ncaab":        0.78,
-    "basketball_wnba":         0.80,
-    "baseball_mlb":            0.78,
-    "icehockey_nhl":           0.83,
-    "soccer_epl":              0.87,
-    "soccer_spain_la_liga":    0.87,
-    "soccer_germany_bundesliga": 0.87,
-    "soccer_italy_serie_a":    0.87,
-    "soccer_france_ligue_one": 0.87,
-    "soccer_uefa_champs_league": 0.87,
-    "soccer_usa_mls":          0.87,
-    "tennis_atp":              0.72,
-    "tennis_wta":              0.72,
-    "tennis_atp_french_open":  0.72,
-    "tennis_wta_french_open":  0.72,
-    "tennis_atp_wimbledon":    0.72,
-    "tennis_wta_wimbledon":    0.72,
-    "tennis_atp_us_open":      0.72,
-    "tennis_wta_us_open":      0.72,
-    "tennis_atp_aus_open":     0.72,
-    "tennis_wta_aus_open":     0.72,
-    "mma_mixed_martial_arts":  0.80,
-    "boxing_boxing":           0.80,
-    "default":                 0.80,
-}
+ENDGAME_ELAPSED_MINUTES = {
+    # ── Soccer ────────────────────────────────────────────────────
+    "soccer_epl":                       90,
+    "soccer_spain_la_liga":             90,
+    "soccer_germany_bundesliga":        90,
+    "soccer_italy_serie_a":             90,
+    "soccer_france_ligue_one":          90,
+    "soccer_uefa_champs_league":        90,
+    "soccer_uefa_europa_league":        90,
+    "soccer_usa_mls":                   90,
+    "soccer_conmebol_copa_libertadores":90,
+    "soccer_fifa_world_cup":            90,
 
-# How many hours before market close to allow betting.
-# This is a secondary check on top of price threshold.
-# 4.0 = only bet on markets expiring within 4 hours
-MAX_HOURS_TO_CLOSE = float(os.getenv("MAX_HOURS_TO_CLOSE", "4.0"))
+    # ── Hockey ────────────────────────────────────────────────────
+    "icehockey_nhl":                    86,   # Final 10 min of 3rd period
+
+    # ── Baseball ──────────────────────────────────────────────────
+    "baseball_mlb":                    140,   # 8th inning (7 innings × 20 min avg)
+
+    # ── Basketball ────────────────────────────────────────────────
+    "basketball_nba":                  110,   # 4th quarter, ~10 min left
+    "basketball_ncaab":                100,
+    "basketball_euroleague":           110,
+    "basketball_wnba":                 100,
+
+    # ── American Football ─────────────────────────────────────────
+    "americanfootball_nfl":            175,   # 4th quarter, last 5 min
+    "americanfootball_ncaaf":          175,
+    "americanfootball_cfl":            175,
+
+    # ── Tennis ────────────────────────────────────────────────────
+    "tennis_atp":                       90,   # Final set well underway
+    "tennis_wta":                       90,
+    "tennis_atp_french_open":           90,
+    "tennis_wta_french_open":           90,
+    "tennis_atp_wimbledon":             90,
+    "tennis_wta_wimbledon":             90,
+    "tennis_atp_us_open":               90,
+    "tennis_wta_us_open":               90,
+    "tennis_atp_aus_open":              90,
+    "tennis_wta_aus_open":              90,
+
+    # ── Combat Sports ─────────────────────────────────────────────
+    "mma_mixed_martial_arts":           20,   # Final round
+    "boxing_boxing":                    35,   # Late rounds (35 min for 10-round fight)
+
+    # ── Rugby / AFL ───────────────────────────────────────────────
+    "rugbyleague_nrl":                  70,   # Final 10 min (80 min game + breaks)
+    "rugbyunion_premiership":           70,
+    "aussierules_afl":                 110,   # Final quarter (AFL ~120 min wall clock)
+
+    # ── Cricket ───────────────────────────────────────────────────
+    "cricket_icc_world_cup":           200,   # Late overs (T20: ~200 min for both innings)
+
+    "default":                          90,
+}
 
 # ─────────────────────────────────────────────
 # POLLING RATE
