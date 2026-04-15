@@ -519,6 +519,33 @@
         </div>
       </div>
     </div>
+    <!-- ── Watchlist ────────────────────────────────────────────── -->
+    <div class="card">
+      <div class="card-header">
+        <span class="section-title" style="margin:0">👀 Watchlist — Approaching Parameters</span>
+        <span id="watchlistNote" style="font-size:.75rem;color:var(--muted);">Live games close to triggering a bet</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Game</th>
+            <th>Sport</th>
+            <th>Sharp Prob</th>
+            <th>Kalshi Price</th>
+            <th>Edge</th>
+            <th>End-game?</th>
+            <th>What's Needed</th>
+          </tr></thead>
+          <tbody id="watchlistTable">
+            <tr><td colspan="7" class="empty">
+              <div class="empty-icon">👀</div>
+              No live games nearing parameters yet — checking every minute
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-header">
         <span class="section-title" style="margin:0">📟 Latest Run Log</span>
@@ -742,8 +769,26 @@ async function loadLatestLog() {
 
     logBox.scrollTop = logBox.scrollHeight;
     extractScanTimesFromLog(logContent);
+    extractWatchlistFromLog(logContent);
   } catch (e) {
     logBox.innerHTML = `<span class="log-error">Could not load log: ${e.message}</span>`;
+  }
+}
+
+// ── Extract watchlist from run log ────────────────────────────────────────
+// The bot writes a special line: "WATCHLIST_JSON:{...}"
+// We extract it here and render the watchlist panel without needing a ZIP.
+function extractWatchlistFromLog(content) {
+  const match = content.match(/WATCHLIST_JSON:(\{.*\})/);
+  if (!match) {
+    // No watchlist in this log (older run or no near-misses)
+    return;
+  }
+  try {
+    const data = JSON.parse(match[1]);
+    renderWatchlist(data.items || [], data.updated_at || '');
+  } catch (e) {
+    console.warn('Watchlist JSON parse failed:', e);
   }
 }
 
@@ -832,6 +877,82 @@ async function loadBetLog(fullHistory = false) {
     console.warn('Bet log load failed:', e);
     renderPnlChart([]);
   }
+}
+
+// ── Watchlist ─────────────────────────────────────────────────────────────
+// Watchlist data is parsed from the run log (via extractWatchlistFromLog).
+// This stub exists so nothing breaks if called directly.
+function loadWatchlist() {
+  // No-op — watchlist is populated via extractWatchlistFromLog()
+  // which is called automatically when loadLatestLog() runs.
+}
+
+function renderWatchlist(items, updatedAt) {
+  const tbody = document.getElementById('watchlistTable');
+  const note  = document.getElementById('watchlistNote');
+
+  if (!items || !items.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty">
+      <div class="empty-icon">👀</div>
+      No live games nearing parameters right now — bot is scanning
+    </td></tr>`;
+    note.textContent = updatedAt ? `Last checked ${new Date(updatedAt).toLocaleTimeString()}` : 'Live games close to triggering a bet';
+    return;
+  }
+
+  note.textContent = `${items.length} game${items.length !== 1 ? 's' : ''} watching — updated ${new Date(updatedAt).toLocaleTimeString()}`;
+
+  const sportEmoji = {
+    basketball_nba: '🏀', baseball_mlb: '⚾', icehockey_nhl: '🏒',
+    americanfootball_nfl: '🏈', soccer_epl: '⚽', soccer_spain_la_liga: '⚽',
+    soccer_germany_bundesliga: '⚽', soccer_italy_serie_a: '⚽',
+    soccer_france_ligue_one: '⚽', soccer_uefa_champs_league: '⚽',
+    tennis_atp: '🎾', tennis_wta: '🎾', mma_mixed_martial_arts: '🥊',
+    default: '🎯'
+  };
+
+  tbody.innerHTML = items.map(item => {
+    const emoji = sportEmoji[item.sport_key] || sportEmoji.default;
+    const probPct  = Math.round(item.sharp_prob * 100);
+    const pricePct = Math.round(item.kalshi_price * 100);
+    const edgePct  = (item.edge * 100).toFixed(1);
+    const edgeColor = item.edge >= 0.03 ? 'var(--green)' : item.edge >= 0 ? 'var(--yellow)' : 'var(--red)';
+    const probColor = item.sharp_prob >= 0.70 ? 'var(--green)' : item.sharp_prob >= 0.65 ? 'var(--yellow)' : 'var(--text)';
+
+    // Progress bar toward 70% threshold
+    const pct70  = Math.min(100, Math.round((item.sharp_prob / 0.70) * 100));
+    const pct3   = item.edge >= 0 ? Math.min(100, Math.round((item.edge / 0.03) * 100)) : 0;
+
+    const matchTitle = item.pinnacle_match || item.title;
+    const endgameBadge = item.endgame
+      ? `<span style="color:var(--green);font-size:.7rem;">✅ YES</span>`
+      : `<span style="color:var(--muted);font-size:.7rem;">⏳ NOT YET</span>`;
+
+    return `<tr>
+      <td style="max-width:220px;">
+        <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${matchTitle}">${matchTitle}</div>
+        <div style="font-size:.7rem;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${item.ticker}</div>
+      </td>
+      <td>${emoji}</td>
+      <td>
+        <span style="color:${probColor};font-weight:600;">${probPct}%</span>
+        <div style="width:60px;height:4px;background:var(--border);border-radius:2px;margin-top:3px;">
+          <div style="width:${pct70}%;height:100%;background:${probColor};border-radius:2px;"></div>
+        </div>
+        <div style="font-size:.65rem;color:var(--muted);">need 70%</div>
+      </td>
+      <td>${pricePct}¢</td>
+      <td>
+        <span style="color:${edgeColor};font-weight:600;">${edgePct >= 0 ? '+' : ''}${edgePct}%</span>
+        ${item.edge >= 0 ? `<div style="width:60px;height:4px;background:var(--border);border-radius:2px;margin-top:3px;">
+          <div style="width:${pct3}%;height:100%;background:${edgeColor};border-radius:2px;"></div>
+        </div>
+        <div style="font-size:.65rem;color:var(--muted);">need 3%</div>` : ''}
+      </td>
+      <td>${endgameBadge}</td>
+      <td style="font-size:.75rem;color:var(--muted);max-width:200px;">${item.blocking_rule}</td>
+    </tr>`;
+  }).join('');
 }
 
 function renderBetLog(totalArtifacts = 0, fullHistory = false) {
