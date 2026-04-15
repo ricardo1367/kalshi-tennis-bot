@@ -28,7 +28,7 @@ on:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 2   # Safety: kill job if it hangs
+    timeout-minutes: 3   # Market fetch (~80s) + polling cycles (~40s) + overhead = ~2.5 min
     # ── Kill switch: set repo variable TRADING_ENABLED=false to pause all trading ──
     if: ${{ vars.TRADING_ENABLED != 'false' }}
 
