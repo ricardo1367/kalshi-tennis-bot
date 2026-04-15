@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kalshi Sports Bot — Control Panel</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    /* ── Reset & Base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --surface2:  #1c2128;
+      --border:    #30363d;
+      --text:      #e6edf3;
+      --muted:     #8b949e;
+      --green:     #3fb950;
+      --red:       #f85149;
+      --yellow:    #d29922;
+      --blue:      #388bfd;
+      --purple:    #bc8cff;
+      --accent:    #388bfd;
+      --radius:    10px;
+    }
+    html { font-size: 15px; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* ── Layout ── */
+    .app { max-width: 1400px; margin: 0 auto; padding: 20px; }
+
+    /* ── Header ── */
+    .header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 24px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 20px;
+    }
+    .header-left { display: flex; align-items: center; gap: 14px; }
+    .logo { font-size: 1.5rem; }
+    .header-title h1 { font-size: 1.2rem; font-weight: 700; letter-spacing: -0.3px; }
+    .header-title p  { font-size: 0.82rem; color: var(--muted); margin-top: 1px; }
+    .status-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 12px; border-radius: 20px; font-size: 0.78rem; font-weight: 600;
+    }
+    .status-badge.live   { background: rgba(63,185,80,.15); color: var(--green); border: 1px solid rgba(63,185,80,.3); }
+    .status-badge.demo   { background: rgba(210,153,34,.15); color: var(--yellow); border: 1px solid rgba(210,153,34,.3); }
+    .status-badge.idle   { background: rgba(139,148,158,.12); color: var(--muted); border: 1px solid var(--border); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .dot.pulse { animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    /* ── Section title ── */
+    .section-title {
+      font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1px; color: var(--muted); margin-bottom: 12px;
+    }
+
+    /* ── Metrics grid ── */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+    .metric-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color .2s;
+    }
+    .metric-card:hover { border-color: var(--accent); }
+    .metric-card .label { font-size: 0.75rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+    .metric-card .value { font-size: 2rem; font-weight: 700; margin: 6px 0 4px; line-height: 1; }
+    .metric-card .sub   { font-size: 0.78rem; color: var(--muted); }
+    .metric-card .value.green  { color: var(--green); }
+    .metric-card .value.red    { color: var(--red); }
+    .metric-card .value.blue   { color: var(--blue); }
+    .metric-card .value.purple { color: var(--purple); }
+    .metric-card .corner-icon {
+      position: absolute; top: 14px; right: 14px;
+      font-size: 1.4rem; opacity: .25;
+    }
+
+    /* ── Two-column layout ── */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
+    @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .card-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    /* ── Chart wrapper ── */
+    .chart-wrap { position: relative; height: 220px; }
+
+    /* ── Tables ── */
+    .table-wrap { overflow-x: auto; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    th {
+      text-align: left; padding: 8px 10px;
+      color: var(--muted); font-weight: 600; font-size: 0.73rem;
+      text-transform: uppercase; letter-spacing: .5px;
+      border-bottom: 1px solid var(--border);
+    }
+    td { padding: 9px 10px; border-bottom: 1px solid rgba(48,54,61,.5); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,.025); }
+
+    /* ── Badges ── */
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 20px;
+      font-size: 0.7rem; font-weight: 700;
+    }
+    .badge.success { background: rgba(63,185,80,.15); color: var(--green); }
+    .badge.failure { background: rgba(248,81,73,.15); color: var(--red); }
+    .badge.running { background: rgba(56,139,253,.15); color: var(--blue); }
+    .badge.queued  { background: rgba(139,148,158,.15); color: var(--muted); }
+    .badge.dry-run { background: rgba(188,140,255,.15); color: var(--purple); }
+    .badge.placed  { background: rgba(63,185,80,.15); color: var(--green); }
+
+    /* ── Control panel ── */
+    .controls { display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 9px 18px; border-radius: 7px;
+      font-size: 0.85rem; font-weight: 600; cursor: pointer;
+      border: 1px solid var(--border); background: var(--surface2);
+      color: var(--text); transition: all .15s;
+    }
+    .btn:hover   { background: var(--border); }
+    .btn:active  { transform: scale(.97); }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn.primary:hover { background: #4d9fff; border-color: #4d9fff; }
+    .btn.danger  { background: rgba(248,81,73,.15); border-color: rgba(248,81,73,.3); color: var(--red); }
+    .btn.danger:hover { background: rgba(248,81,73,.25); }
+    .btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+    /* ── Config panel ── */
+    .config-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 12px; margin-top: 4px;
+    }
+    @media (max-width: 600px) { .config-grid { grid-template-columns: 1fr; } }
+    .config-item label { display: block; font-size: 0.73rem; color: var(--muted); margin-bottom: 4px; font-weight: 600; }
+    .config-item input {
+      width: 100%; padding: 8px 10px; border-radius: 6px;
+      background: var(--bg); border: 1px solid var(--border);
+      color: var(--text); font-size: 0.85rem; font-family: monospace;
+    }
+    .config-item input:focus { outline: none; border-color: var(--accent); }
+
+    /* ── Log stream ── */
+    .log-box {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 7px; padding: 12px;
+      font-family: 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 0.77rem; line-height: 1.7;
+      max-height: 280px; overflow-y: auto;
+      white-space: pre-wrap; word-break: break-all;
+    }
+    .log-box .log-info    { color: #58a6ff; }
+    .log-box .log-warning { color: var(--yellow); }
+    .log-box .log-error   { color: var(--red); }
+    .log-box .log-bet     { color: var(--green); font-weight: bold; }
+    .log-box .log-ts      { color: var(--muted); }
+
+    /* ── Sparkline ── */
+    .sparkline-row { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+    .sparkline-label { font-size: 0.78rem; color: var(--muted); white-space: nowrap; min-width: 80px; }
+
+    /* ── Empty state ── */
+    .empty { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 0.88rem; }
+    .empty-icon { font-size: 2.5rem; margin-bottom: 10px; opacity: .5; }
+
+    /* ── Refresh indicator ── */
+    .refresh-bar {
+      position: fixed; top: 0; left: 0; height: 3px;
+      background: var(--accent); transition: width .5s linear;
+      z-index: 1000;
+    }
+
+    /* ── Toast ── */
+    .toast-container { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 8px; z-index: 9999; }
+    .toast {
+      padding: 12px 18px; border-radius: 8px; font-size: 0.85rem; font-weight: 500;
+      background: var(--surface); border: 1px solid var(--border);
+      box-shadow: 0 4px 20px rgba(0,0,0,.4);
+      animation: slideIn .25s ease; max-width: 320px;
+    }
+    .toast.success { border-color: rgba(63,185,80,.4); }
+    .toast.error   { border-color: rgba(248,81,73,.4); }
+    @keyframes slideIn { from { transform: translateX(110%); opacity:0 } to { transform:translateX(0); opacity:1 } }
+
+    /* ── Kill switch toggle ── */
+    .kill-switch-wrap {
+      display: flex; align-items: center; gap: 16px;
+      padding: 16px 20px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 20px;
+    }
+    .kill-switch-label { flex: 1; }
+    .kill-switch-label h2 { font-size: 1rem; font-weight: 700; }
+    .kill-switch-label p  { font-size: .78rem; color: var(--muted); margin-top: 2px; }
+    .toggle-track {
+      position: relative; width: 68px; height: 36px;
+      border-radius: 18px; cursor: pointer;
+      transition: background .25s;
+      flex-shrink: 0;
+      border: 2px solid transparent;
+    }
+    .toggle-track.on  { background: var(--green); border-color: rgba(63,185,80,.4); }
+    .toggle-track.off { background: var(--red);   border-color: rgba(248,81,73,.4); }
+    .toggle-track.loading { opacity: .5; pointer-events: none; }
+    .toggle-thumb {
+      position: absolute; top: 3px;
+      width: 26px; height: 26px; border-radius: 13px;
+      background: #fff; transition: left .25s;
+      box-shadow: 0 1px 4px rgba(0,0,0,.4);
+    }
+    .toggle-track.on  .toggle-thumb { left: 36px; }
+    .toggle-track.off .toggle-thumb { left: 4px; }
+    .toggle-status {
+      font-size: .85rem; font-weight: 700; min-width: 60px;
+      transition: color .25s;
+    }
+    .toggle-status.on  { color: var(--green); }
+    .toggle-status.off { color: var(--red); }
+
+    /* ── Misc ── */
+    .mono { font-family: monospace; }
+    .right { text-align: right; }
+    .muted { color: var(--muted); }
+    .flex-between { display: flex; align-items: center; justify-content: space-between; }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .spinner {
+      width: 16px; height: 16px; border: 2px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%;
+      animation: spin .6s linear infinite; display: inline-block;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<div class="refresh-bar" id="refreshBar"></div>
+<div class="toast-container" id="toastContainer"></div>
+
+<div class="app">
+
+  <!-- ── Header ── -->
+  <div class="header">
+    <div class="header-left">
+      <div class="logo">🎯</div>
+      <div class="header-title">
+        <h1>Kalshi Sports Bot</h1>
+        <p>Automated prediction market trader — powered by Pinnacle sharp odds</p>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span id="botStatusBadge" class="status-badge idle"><span class="dot"></span> Loading…</span>
+      <span id="lastRefreshed" class="muted" style="font-size:.75rem;"></span>
+      <button class="btn" id="refreshBtn" onclick="refreshAll()">↻ Refresh</button>
+    </div>
+  </div>
+
+  <!-- ── Kill Switch ── -->
+  <div class="kill-switch-wrap">
+    <div class="kill-switch-label">
+      <h2>🔴 Trading Kill Switch</h2>
+      <p id="killSwitchDesc">Checking status…</p>
+    </div>
+    <span class="toggle-status off" id="toggleStatus">—</span>
+    <div class="toggle-track off loading" id="toggleTrack" onclick="flipKillSwitch()">
+      <div class="toggle-thumb"></div>
+    </div>
+  </div>
+
+  <!-- ── Config (collapsible) ── -->
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-header" style="cursor:pointer" onclick="toggleConfig()">
+      <span class="section-title" style="margin:0;">⚙️ Configuration</span>
+      <span id="configToggleIcon" style="color:var(--muted);font-size:.85rem;">▼ Show</span>
+    </div>
+    <div id="configPanel" style="display:none;margin-top:16px;">
+      <div class="config-grid">
+        <div class="config-item">
+          <label>GitHub Token (for API access)</label>
+          <input type="password" id="cfgToken" placeholder="ghp_…" oninput="saveConfig()" />
+        </div>
+        <div class="config-item">
+          <label>Repo (owner/name)</label>
+          <input type="text" id="cfgRepo" placeholder="ricardo1367/kalshi-tennis-bot" oninput="saveConfig()" />
+        </div>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:10px;align-items:center;">
+        <button class="btn primary" onclick="refreshAll()">Apply & Refresh</button>
+        <span id="configStatus" style="font-size:.8rem;color:var(--muted);"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Metrics ── -->
+  <div class="section-title">Performance Metrics</div>
+  <div class="metrics-grid">
+    <div class="metric-card">
+      <div class="corner-icon">💰</div>
+      <div class="label">Bankroll</div>
+      <div class="value blue" id="mBankroll">—</div>
+      <div class="sub" id="mBankrollSub">Kalshi balance</div>
+    </div>
+    <div class="metric-card">
+      <div class="corner-icon">🎯</div>
+      <div class="label">Total Bets</div>
+      <div class="value" id="mTotalBets">—</div>
+      <div class="sub" id="mBetsSub">across all runs</div>
+    </div>
+    <div class="metric-card">
+      <div class="corner-icon">📈</div>
+      <div class="label">Win Rate</div>
+      <div class="value green" id="mWinRate">—</div>
+      <div class="sub" id="mWinRateSub">of settled bets</div>
+    </div>
+    <div class="metric-card">
+      <div class="corner-icon">💵</div>
+      <div class="label">Net P&amp;L</div>
+      <div class="value" id="mPnl">—</div>
+      <div class="sub" id="mPnlSub">all-time</div>
+    </div>
+    <div class="metric-card">
+      <div class="corner-icon">🔄</div>
+      <div class="label">Bot Runs</div>
+      <div class="value purple" id="mRuns">—</div>
+      <div class="sub" id="mRunsSub">since deployment</div>
+    </div>
+    <div class="metric-card">
+      <div class="corner-icon">⚡</div>
+      <div class="label">Avg Scan Time</div>
+      <div class="value" id="mScanTime">—</div>
+      <div class="sub">seconds per cycle</div>
+    </div>
+  </div>
+
+  <!-- ── Charts + Recent Runs ── -->
+  <div class="two-col">
+    <div class="card">
+      <div class="card-header">
+        <span class="section-title" style="margin:0">📊 P&amp;L Over Time</span>
+        <span id="pnlChartNote" style="font-size:.75rem;color:var(--muted);"></span>
+      </div>
+      <div class="chart-wrap"><canvas id="pnlChart"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="section-title" style="margin:0">🔄 GitHub Actions — Run History</span>
+        <a id="actionsLink" href="#" target="_blank" style="font-size:.75rem;">View all →</a>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>#</th><th>Status</th><th>Triggered</th><th>Duration</th><th>Bets</th><th></th>
+          </tr></thead>
+          <tbody id="runsTable"><tr><td colspan="6" class="empty"><div class="spinner"></div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Bet Log ── -->
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-header">
+      <span class="section-title" style="margin:0">📋 Bet Log</span>
+      <span id="betLogNote" style="font-size:.75rem;color:var(--muted);"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Time</th><th>Ticker</th><th>Sport</th><th>Side</th>
+          <th>Our Prob</th><th>Mkt Price</th><th>Edge</th>
+          <th>Contracts</th><th>Amount</th><th>Action</th>
+        </tr></thead>
+        <tbody id="betLogTable">
+          <tr><td colspan="10" class="empty">
+            <div class="empty-icon">📋</div>
+            <div>No bets logged yet — waiting for qualifying opportunities</div>
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── Scan Stats ── -->
+  <div class="card" style="margin-bottom:20px;" id="scanStatsCard">
+    <div class="card-header">
+      <span class="section-title" style="margin:0">⚡ Scan Performance</span>
+      <span style="font-size:.75rem;color:var(--muted);">Auto-refreshes every 60s
+        — next in <span id="countdown">60</span>s</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-top:4px;">
+      <div>
+        <div style="font-size:.72rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Tradeable Markets</div>
+        <div style="font-size:1.6rem;font-weight:700;color:var(--blue);" id="statMarkets">—</div>
+        <div style="font-size:.75rem;color:var(--muted);">price 2¢–98¢ (live)</div>
+      </div>
+      <div>
+        <div style="font-size:.72rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Fetch Time</div>
+        <div style="font-size:1.6rem;font-weight:700;color:var(--green);" id="statFetchTime">—</div>
+        <div style="font-size:.75rem;color:var(--muted);">seconds per scan</div>
+      </div>
+      <div>
+        <div style="font-size:.72rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">API Pages</div>
+        <div style="font-size:1.6rem;font-weight:700;color:var(--purple);" id="statPages">—</div>
+        <div style="font-size:.75rem;color:var(--muted);">@1000 per page</div>
+      </div>
+      <div>
+        <div style="font-size:.72rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Cycles / Run</div>
+        <div style="font-size:1.6rem;font-weight:700;color:var(--yellow);" id="statCycles">—</div>
+        <div style="font-size:.75rem;color:var(--muted);">scans per job</div>
+      </div>
+      <div>
+        <div style="font-size:.72rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Pinnacle Live</div>
+        <div style="font-size:1.6rem;font-weight:700;" id="statPinnacle">—</div>
+        <div style="font-size:.75rem;color:var(--muted);">matches right now</div>
+      </div>
+      <div>
+        <div style="font-size:.72rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Kalshi↔Pinnacle</div>
+        <div style="font-size:1.6rem;font-weight:700;" id="statMatched">—</div>
+        <div style="font-size:.75rem;color:var(--muted);">matched pairs</div>
+      </div>
+      <div>
+        <div style="font-size:.72rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Bets / Cycle</div>
+        <div style="font-size:1.6rem;font-weight:700;color:var(--green);" id="statBetsPerCycle">—</div>
+        <div style="font-size:.75rem;color:var(--muted);">avg qualifying bets</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Control Panel + Log ── -->
+  <div class="two-col">
+    <div class="card">
+      <div class="card-header">
+        <span class="section-title" style="margin:0">🎮 Control Panel</span>
+      </div>
+      <div style="margin-bottom:16px;">
+        <div style="font-size:.8rem;color:var(--muted);margin-bottom:10px;">
+          The bot runs automatically every minute via GitHub Actions cron.
+          Use these controls for manual runs or testing.
+        </div>
+        <div style="font-size:.78rem;background:rgba(56,139,253,.08);border:1px solid rgba(56,139,253,.2);border-radius:6px;padding:10px 12px;margin-bottom:12px;color:var(--blue);">
+          💡 0 bets in a cycle is normal — the bot only bets when it finds ≥70% probability <em>and</em> ≥3% edge simultaneously. Opportunities are rare by design.
+        </div>
+        <div class="controls">
+          <button class="btn primary" id="btnTestRun" onclick="triggerRun('true')">
+            ▶ Run Demo Scan
+          </button>
+          <button class="btn danger" id="btnLiveRun" onclick="triggerRun('false')">
+            ⚡ Run Live Scan
+          </button>
+        </div>
+      </div>
+      <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:4px;">
+        <div class="section-title">Bot Settings</div>
+        <div style="display:grid;gap:8px;font-size:.82rem;">
+          <div class="flex-between">
+            <span class="muted">Min Win Probability</span>
+            <strong>70%</strong>
+          </div>
+          <div class="flex-between">
+            <span class="muted">Min Edge</span>
+            <strong>3%</strong>
+          </div>
+          <div class="flex-between">
+            <span class="muted">Kelly Fraction</span>
+            <strong>½ Kelly</strong>
+          </div>
+          <div class="flex-between">
+            <span class="muted">Max Bet Size</span>
+            <strong>10% of bankroll</strong>
+          </div>
+          <div class="flex-between">
+            <span class="muted">End-Game Filter</span>
+            <strong>Price ≥ 72–87¢</strong>
+          </div>
+          <div class="flex-between">
+            <span class="muted">Polling Rate</span>
+            <strong>~10 seconds</strong>
+          </div>
+          <div class="flex-between">
+            <span class="muted">Sports Coverage</span>
+            <strong>All (40+)</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="section-title" style="margin:0">📟 Latest Run Log</span>
+        <button class="btn" style="padding:4px 10px;font-size:.75rem;" onclick="loadLatestLog()">Reload</button>
+      </div>
+      <div class="log-box" id="logBox">Waiting for log data…</div>
+    </div>
+  </div>
+
+</div><!-- /app -->
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const state = {
+  token: '',
+  repo:  'ricardo1367/kalshi-tennis-bot',
+  runs:  [],
+  bets:  [],
+  refreshInterval: null,
+  pnlChart: null,
+  refreshCountdown: 60,
+  tradingEnabled: true,
+};
+
+// ── Persist config in memory (no localStorage) ────────────────────────────
+function saveConfig() {
+  state.token = document.getElementById('cfgToken').value.trim();
+  state.repo  = document.getElementById('cfgRepo').value.trim() || 'ricardo1367/kalshi-tennis-bot';
+  document.getElementById('configStatus').textContent = 'Config updated.';
+  setTimeout(() => document.getElementById('configStatus').textContent = '', 2000);
+}
+
+function toggleConfig() {
+  const panel = document.getElementById('configPanel');
+  const icon  = document.getElementById('configToggleIcon');
+  if (panel.style.display === 'none') {
+    panel.style.display = 'block';
+    icon.textContent = '▲ Hide';
+    // Pre-fill defaults
+    if (!document.getElementById('cfgToken').value) {
+      document.getElementById('cfgToken').value = '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';
+      document.getElementById('cfgRepo').value  = state.repo;
+      saveConfig();
+    }
+  } else {
+    panel.style.display = 'none';
+    icon.textContent = '▼ Show';
+  }
+}
+
+// ── GitHub API helpers ────────────────────────────────────────────────────
+async function ghFetch(path, opts = {}) {
+  const token = state.token || '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';
+  const res = await fetch(`https://api.github.com${path}`, {
+    ...opts,
+    headers: {
+      Authorization: `token ${token}`,
+      Accept: 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json',
+      ...opts.headers,
+    },
+  });
+  if (!res.ok) throw new Error(`GitHub API ${res.status}: ${await res.text()}`);
+  return opts.raw ? res : res.json();
+}
+
+// ── Toast notifications ───────────────────────────────────────────────────
+function toast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toastContainer').prepend(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+// ── Trigger a workflow run ────────────────────────────────────────────────
+async function triggerRun(demoMode) {
+  const btnId = demoMode === 'true' ? 'btnTestRun' : 'btnLiveRun';
+  const btn = document.getElementById(btnId);
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Triggering…';
+  try {
+    // Get workflow ID first
+    const wfs = await ghFetch(`/repos/${state.repo}/actions/workflows`);
+    const wf = wfs.workflows[0];
+    await ghFetch(`/repos/${state.repo}/actions/workflows/${wf.id}/dispatches`, {
+      method: 'POST',
+      body: JSON.stringify({ ref: 'main', inputs: { demo_mode: demoMode } }),
+    });
+    toast(`✅ ${demoMode === 'true' ? 'Demo' : '⚡ LIVE'} scan triggered!`, 'success');
+    setTimeout(refreshAll, 4000);
+  } catch (e) {
+    toast(`❌ Trigger failed: ${e.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = demoMode === 'true' ? '▶ Run Demo Scan' : '⚡ Run Live Scan';
+  }
+}
+
+// ── Fetch run history ─────────────────────────────────────────────────────
+async function loadRuns() {
+  try {
+    const data = await ghFetch(`/repos/${state.repo}/actions/runs?per_page=30`);
+    state.runs = data.workflow_runs || [];
+    renderRunsTable();
+    updateStatusBadge();
+
+    const total = data.total_count || state.runs.length;
+    document.getElementById('mRuns').textContent = total > 999 ? '1k+' : total;
+    document.getElementById('mRunsSub').textContent =
+      `${state.runs.filter(r=>r.conclusion==='success').length} succeeded of ${state.runs.length} shown`;
+
+    // Update actions link
+    document.getElementById('actionsLink').href =
+      `https://github.com/${state.repo}/actions`;
+
+    // Extract avg scan time from logs if available
+    extractScanTimes();
+  } catch (e) {
+    console.warn('Runs load failed:', e);
+  }
+}
+
+function renderRunsTable() {
+  const tbody = document.getElementById('runsTable');
+  if (!state.runs.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">No runs yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = state.runs.slice(0, 12).map(r => {
+    const status = r.conclusion || r.status;
+    const badge = `<span class="badge ${status}">${status}</span>`;
+    const ago   = timeAgo(r.created_at);
+    const dur   = r.updated_at && r.created_at
+      ? Math.round((new Date(r.updated_at) - new Date(r.created_at)) / 1000) + 's'
+      : '—';
+    return `<tr>
+      <td class="mono muted">#${r.run_number}</td>
+      <td>${badge}</td>
+      <td>${ago}</td>
+      <td class="mono">${dur}</td>
+      <td class="muted">—</td>
+      <td><a href="${r.html_url}" target="_blank" style="font-size:.75rem;">View →</a></td>
+    </tr>`;
+  }).join('');
+}
+
+function updateStatusBadge() {
+  const badge = document.getElementById('botStatusBadge');
+  const latest = state.runs[0];
+  if (!latest) { badge.className = 'status-badge idle'; badge.innerHTML = '<span class="dot"></span> No runs'; return; }
+  if (latest.status === 'in_progress' || latest.status === 'queued') {
+    badge.className = 'status-badge live';
+    badge.innerHTML = '<span class="dot pulse"></span> Running now';
+  } else if (latest.conclusion === 'success') {
+    // Bot runs every minute — if last run was < 3 min ago, show as active
+    const age = (Date.now() - new Date(latest.updated_at)) / 1000;
+    if (age < 180) {
+      badge.className = 'status-badge live';
+      badge.innerHTML = `<span class="dot pulse"></span> Active — ${timeAgo(latest.updated_at)}`;
+    } else {
+      badge.className = 'status-badge demo';
+      badge.innerHTML = `<span class="dot"></span> Last run OK — ${timeAgo(latest.updated_at)}`;
+    }
+  } else {
+    badge.className = 'status-badge idle';
+    badge.innerHTML = `<span class="dot"></span> ${latest.conclusion || latest.status}`;
+  }
+}
+
+// ── Load latest run log ───────────────────────────────────────────────────
+async function loadLatestLog() {
+  const logBox = document.getElementById('logBox');
+  if (!state.runs.length) { logBox.innerHTML = 'No runs yet.'; return; }
+
+  const run = state.runs[0];
+  logBox.innerHTML = '<span class="spinner"></span> Loading log…';
+
+  try {
+    const logsRes = await ghFetch(
+      `/repos/${state.repo}/actions/runs/${run.id}/logs`,
+      { raw: true }
+    );
+    const blob = await logsRes.blob();
+    const zip  = await loadZip(blob);
+
+    // Find the "Run bot" step log
+    let logContent = '';
+    for (const [name, content] of Object.entries(zip)) {
+      if (name.includes('Run bot') || name.includes('6_Run')) {
+        logContent = content; break;
+      }
+    }
+    if (!logContent) {
+      // fallback: show any log
+      logContent = Object.values(zip)[0] || 'No log content found.';
+    }
+
+    // Parse & colorize
+    const lines = logContent.split('\n')
+      .filter(l => l.includes('[INFO]') || l.includes('[WARNING]') || l.includes('[ERROR]') || l.includes('💰') || l.includes('DRY RUN'))
+      .slice(-100);
+
+    logBox.innerHTML = lines.map(line => {
+      const msg = line.replace(/^.*?Z\s/, '').replace(/\x1b\[[0-9;]*m/g, '').trim();
+      if (!msg) return '';
+      if (msg.includes('[ERROR]'))           return `<span class="log-error">${esc(msg)}</span>`;
+      if (msg.includes('[WARNING]'))         return `<span class="log-warning">${esc(msg)}</span>`;
+      if (msg.includes('💰') || msg.includes('LIVE BET'))
+                                             return `<span class="log-bet">${esc(msg)}</span>`;
+      if (msg.includes('DRY RUN] Would'))    return `<span style="color:var(--purple)">${esc(msg)}</span>`;
+      if (msg.includes('Cycle #') && msg.includes('done')) return `<span style="color:var(--yellow)">${esc(msg)}</span>`;
+      if (msg.includes('Job complete'))      return `<span style="color:var(--green);font-weight:600;">${esc(msg)}</span>`;
+      if (msg.includes('Market fetch'))      return `<span style="color:var(--blue)">${esc(msg)}</span>`;
+      return `<span class="log-info">${esc(msg)}</span>`;
+    }).filter(Boolean).join('\n') || 'No bot log lines found.';
+
+    logBox.scrollTop = logBox.scrollHeight;
+    extractScanTimesFromLog(logContent);
+  } catch (e) {
+    logBox.innerHTML = `<span class="log-error">Could not load log: ${e.message}</span>`;
+  }
+}
+
+// ── Extract scan stats from logs ──────────────────────────────────────────
+function extractScanTimesFromLog(content) {
+  // "Market fetch: 6293 tradeable markets (scanned 63 pages in 6.8s)"
+  const fetchMatch = content.match(/Market fetch: (\d+) tradeable markets \(scanned (\d+) pages in ([\d.]+)s/);
+  if (fetchMatch) {
+    document.getElementById('statMarkets').textContent   = parseInt(fetchMatch[1]).toLocaleString();
+    document.getElementById('statPages').textContent     = fetchMatch[2];
+    document.getElementById('statFetchTime').textContent = fetchMatch[3] + 's';
+  }
+
+  // "Cycle #N done in Xs | markets=N evaluated=N matched=N bets=N"
+  const cycleMatches = [...content.matchAll(/Cycle #(\d+) done in ([\d.]+)s \| markets=\d+ evaluated=\d+ matched=(\d+) bets=(\d+)/g)];
+  if (cycleMatches.length) {
+    const lastCycle = cycleMatches[cycleMatches.length - 1];
+    document.getElementById('statCycles').textContent  = cycleMatches.length;
+    document.getElementById('statMatched').textContent = lastCycle[3];
+    const times = cycleMatches.map(m => parseFloat(m[2]));
+    const avg   = (times.reduce((a,b)=>a+b,0)/times.length).toFixed(1);
+    document.getElementById('mScanTime').textContent = avg + 's';
+    // Avg bets per cycle
+    const totalBets = cycleMatches.reduce((s, m) => s + parseInt(m[4]), 0);
+    const avgBets   = (totalBets / cycleMatches.length).toFixed(1);
+    document.getElementById('statBetsPerCycle').textContent = avgBets;
+  }
+
+  // "Got 225 live matches from Pinnacle" OR "Active sports from Pinnacle: 88"
+  const pinnacleMatch = content.match(/Got (\d+) live matches from Pinnacle/);
+  if (pinnacleMatch) {
+    document.getElementById('statPinnacle').textContent = pinnacleMatch[1];
+  }
+}
+
+// stub so loadRuns() doesn't throw
+function extractScanTimes() {
+  // scan stats populated when log is loaded via loadLatestLog()
+}
+
+// ── Load bet log from artifacts ───────────────────────────────────────────
+async function loadBetLog() {
+  try {
+    // Find any artifact with bet log
+    const arts = await ghFetch(`/repos/${state.repo}/actions/artifacts?per_page=30`);
+    const betArtifacts = (arts.artifacts || []).filter(a => a.name.startsWith('bet-log'));
+    if (!betArtifacts.length) {
+      document.getElementById('betLogNote').textContent = 'No bets logged yet';
+      renderPnlChart([]);
+      return;
+    }
+
+    // Merge all bet log CSVs
+    let allBets = [];
+    for (const art of betArtifacts.slice(0, 10)) {  // last 10 artifacts
+      try {
+        const dlRes = await ghFetch(
+          `/repos/${state.repo}/actions/artifacts/${art.id}/zip`,
+          { raw: true }
+        );
+        const blob = await dlRes.blob();
+        const zip = await loadZip(blob);
+        for (const [name, content] of Object.entries(zip)) {
+          if (name.endsWith('.csv') || name.includes('bot_log')) {
+            const parsed = parseCSV(content);
+            allBets = allBets.concat(parsed);
+          }
+        }
+      } catch {}
+    }
+
+    // Sort by timestamp
+    allBets.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    state.bets = allBets;
+
+    renderBetLog();
+    renderPnlChart(allBets);
+    updateMetrics(allBets);
+
+  } catch (e) {
+    console.warn('Bet log load failed:', e);
+    renderPnlChart([]);
+  }
+}
+
+function renderBetLog() {
+  const tbody = document.getElementById('betLogTable');
+  if (!state.bets.length) {
+    tbody.innerHTML = `<tr><td colspan="10" class="empty">
+      <div class="empty-icon">📋</div>
+      <div>No bets logged yet — bot is scanning for opportunities</div>
+    </td></tr>`;
+    document.getElementById('betLogNote').textContent = 'Waiting for qualifying bets';
+    return;
+  }
+
+  document.getElementById('betLogNote').textContent = `${state.bets.length} total entries`;
+
+  tbody.innerHTML = [...state.bets].reverse().slice(0, 50).map(b => {
+    const time = b.timestamp ? new Date(b.timestamp).toLocaleString() : '—';
+    const side = b.side === 'yes'
+      ? `<span style="color:var(--green);font-weight:700;">YES</span>`
+      : `<span style="color:var(--red);font-weight:700;">NO</span>`;
+    const prob = b.our_prob ? (parseFloat(b.our_prob)*100).toFixed(1)+'%' : '—';
+    const price = b.market_price ? (parseFloat(b.market_price)*100).toFixed(0)+'¢' : '—';
+    const edge = b.edge ? (parseFloat(b.edge)*100).toFixed(1)+'%' : '—';
+    const actionClass = (b.action||'').toLowerCase().replace(/[^a-z]/g,'') === 'placed' ? 'placed' : 'dry-run';
+    return `<tr>
+      <td class="mono muted" style="font-size:.75rem;">${time}</td>
+      <td class="mono" style="font-size:.75rem;">${b.ticker||'—'}</td>
+      <td class="muted">${(b.sport||'—').replace('_',' ')}</td>
+      <td>${side}</td>
+      <td style="color:var(--blue);">${prob}</td>
+      <td class="mono">${price}</td>
+      <td style="color:var(--green);">${edge}</td>
+      <td class="right">${b.contracts||'—'}</td>
+      <td class="right mono"><strong>$${parseFloat(b.bet_dollars||0).toFixed(2)}</strong></td>
+      <td><span class="badge ${actionClass}">${b.action||'—'}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function updateMetrics(bets) {
+  document.getElementById('mTotalBets').textContent = bets.length;
+  if (!bets.length) return;
+
+  const placed = bets.filter(b => b.action === 'PLACED');
+  const totalSpent = placed.reduce((s, b) => s + parseFloat(b.bet_dollars||0), 0);
+  document.getElementById('mBetsSub').textContent = `${placed.length} live, ${bets.length - placed.length} demo`;
+
+  // P&L placeholder (would need settlement data from Kalshi)
+  const totalDemoSpend = bets.filter(b=>b.action==='DRY_RUN').reduce((s,b)=>s+parseFloat(b.bet_dollars||0),0);
+  document.getElementById('mPnl').textContent = placed.length ? `$${totalSpent.toFixed(2)}` : '—';
+  document.getElementById('mPnlSub').textContent = placed.length ? 'staked (settlement pending)' : 'no live bets yet';
+}
+
+// ── P&L Chart ─────────────────────────────────────────────────────────────
+function renderPnlChart(bets) {
+  const ctx = document.getElementById('pnlChart').getContext('2d');
+  if (state.pnlChart) { state.pnlChart.destroy(); }
+
+  const commonOpts = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#1c2128', borderColor: '#30363d', borderWidth: 1,
+        titleColor: '#e6edf3', bodyColor: '#8b949e',
+        callbacks: { label: c => ` $${c.parsed.y.toFixed(2)}` },
+      },
+    },
+    scales: {
+      x: {
+        grid: { color: 'rgba(48,54,61,.5)' },
+        ticks: { color: '#8b949e', maxTicksLimit: 6, maxRotation: 0 },
+      },
+      y: {
+        grid: { color: 'rgba(48,54,61,.5)' },
+        ticks: { color: '#8b949e', callback: v => '$' + v.toFixed(2) },
+      },
+    },
+  };
+
+  if (!bets.length) {
+    const labels = Array.from({length: 8}, (_, i) => {
+      const d = new Date(); d.setDate(d.getDate() - (7 - i));
+      return d.toLocaleDateString('en-US', {month:'short', day:'numeric'});
+    });
+    state.pnlChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          data: labels.map(() => 0),
+          borderColor: 'rgba(56,139,253,.25)',
+          backgroundColor: 'rgba(56,139,253,.04)',
+          borderWidth: 1.5, borderDash: [5,5], tension: 0.3,
+          pointRadius: 0, fill: true,
+        }],
+      },
+      options: commonOpts,
+    });
+    document.getElementById('pnlChartNote').textContent = 'Awaiting first bets';
+    return;
+  }
+
+  // Build cumulative EV as proxy for P&L
+  let cumPnl = 0;
+  const labels = [], data = [];
+  bets.forEach(b => {
+    const spent = parseFloat(b.bet_dollars || 0);
+    const prob  = parseFloat(b.our_prob || 0.5);
+    const price = parseFloat(b.market_price || 0.5);
+    cumPnl += spent * (prob - price);
+    const ts = b.timestamp ? new Date(b.timestamp) : new Date();
+    labels.push(ts.toLocaleDateString('en-US', {month:'short', day:'numeric', hour:'numeric'}));
+    data.push(parseFloat(cumPnl.toFixed(2)));
+  });
+
+  const isPos = cumPnl >= 0;
+  state.pnlChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Cumulative EV ($)',
+        data,
+        borderColor: isPos ? '#3fb950' : '#f85149',
+        backgroundColor: isPos ? 'rgba(63,185,80,.08)' : 'rgba(248,81,73,.08)',
+        borderWidth: 2, tension: 0.3, pointRadius: 3, pointHoverRadius: 6, fill: true,
+      }],
+    },
+    options: commonOpts,
+  });
+  document.getElementById('pnlChartNote').textContent =
+    `${bets.length} bets · EV ${isPos ? '+' : ''}$${cumPnl.toFixed(2)}`;
+}
+
+// ── ZIP / CSV helpers ─────────────────────────────────────────────────────
+async function loadZip(blob) {
+  // Minimal ZIP reader (no external lib needed for simple zips)
+  const buffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  const files = {};
+
+  let i = 0;
+  while (i < bytes.length - 4) {
+    if (bytes[i]===0x50 && bytes[i+1]===0x4B && bytes[i+2]===0x03 && bytes[i+3]===0x04) {
+      const compressionMethod = bytes[i+8] | (bytes[i+9] << 8);
+      const compressedSize   = bytes[i+18] | (bytes[i+19]<<8) | (bytes[i+20]<<16) | (bytes[i+21]<<24);
+      const filenameLen      = bytes[i+26] | (bytes[i+27] << 8);
+      const extraLen         = bytes[i+28] | (bytes[i+29] << 8);
+      const filename = new TextDecoder().decode(bytes.slice(i+30, i+30+filenameLen));
+      const dataStart = i + 30 + filenameLen + extraLen;
+
+      if (compressionMethod === 0) {
+        // Stored (no compression)
+        const content = new TextDecoder('utf-8', {fatal:false}).decode(
+          bytes.slice(dataStart, dataStart + compressedSize)
+        );
+        files[filename] = content;
+      } else if (compressionMethod === 8) {
+        // Deflate — use DecompressionStream
+        try {
+          const compressed = bytes.slice(dataStart, dataStart + compressedSize);
+          const ds = new DecompressionStream('deflate-raw');
+          const writer = ds.writable.getWriter();
+          writer.write(compressed);
+          writer.close();
+          const chunks = [];
+          const reader = ds.readable.getReader();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+          }
+          const total = chunks.reduce((s,c) => s+c.length, 0);
+          const combined = new Uint8Array(total);
+          let off = 0;
+          for (const c of chunks) { combined.set(c, off); off += c.length; }
+          files[filename] = new TextDecoder('utf-8', {fatal:false}).decode(combined);
+        } catch {}
+      }
+      i = dataStart + compressedSize;
+    } else {
+      i++;
+    }
+  }
+  return files;
+}
+
+function parseCSV(text) {
+  const lines = text.trim().split('\n');
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map(h => h.trim().replace(/"/g,''));
+  return lines.slice(1).map(line => {
+    const vals = line.split(',').map(v => v.trim().replace(/"/g,''));
+    const obj = {};
+    headers.forEach((h, i) => obj[h] = vals[i] || '');
+    return obj;
+  }).filter(r => r.timestamp);
+}
+
+// ── Utility ───────────────────────────────────────────────────────────────
+function esc(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function timeAgo(iso) {
+  const secs = (Date.now() - new Date(iso)) / 1000;
+  if (secs < 60)   return Math.round(secs) + 's ago';
+  if (secs < 3600) return Math.round(secs/60) + 'm ago';
+  if (secs < 86400) return Math.round(secs/3600) + 'h ago';
+  return Math.round(secs/86400) + 'd ago';
+}
+
+// ── Kill Switch ───────────────────────────────────────────────────────────
+async function loadKillSwitch() {
+  const track  = document.getElementById('toggleTrack');
+  const status = document.getElementById('toggleStatus');
+  const desc   = document.getElementById('killSwitchDesc');
+  try {
+    const data = await ghFetch(`/repos/${state.repo}/actions/variables/TRADING_ENABLED`);
+    const enabled = data.value !== 'false';
+    applyKillSwitchUI(enabled);
+  } catch (e) {
+    // Variable doesn't exist yet → treat as enabled
+    applyKillSwitchUI(true);
+    desc.textContent = 'Variable not set — will be created on first toggle.';
+  } finally {
+    track.classList.remove('loading');
+  }
+}
+
+function applyKillSwitchUI(enabled) {
+  const track  = document.getElementById('toggleTrack');
+  const status = document.getElementById('toggleStatus');
+  const desc   = document.getElementById('killSwitchDesc');
+  state.tradingEnabled = enabled;
+  track.className  = `toggle-track ${enabled ? 'on' : 'off'}`;
+  status.className = `toggle-status ${enabled ? 'on' : 'off'}`;
+  status.textContent = enabled ? 'ON' : 'OFF';
+  desc.textContent = enabled
+    ? 'Bot is ACTIVE — placing bets every ~10 seconds when edge is found.'
+    : '⛔ Bot is PAUSED — scheduled runs will be skipped until re-enabled.';
+}
+
+async function flipKillSwitch() {
+  const track = document.getElementById('toggleTrack');
+  if (track.classList.contains('loading')) return;
+  track.classList.add('loading');
+
+  const newEnabled = !state.tradingEnabled;
+  const newValue   = newEnabled ? 'true' : 'false';
+  try {
+    // Try PATCH first (update existing), fall back to POST (create)
+    try {
+      await ghFetch(`/repos/${state.repo}/actions/variables/TRADING_ENABLED`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name: 'TRADING_ENABLED', value: newValue }),
+      });
+    } catch {
+      await ghFetch(`/repos/${state.repo}/actions/variables`, {
+        method: 'POST',
+        body: JSON.stringify({ name: 'TRADING_ENABLED', value: newValue }),
+      });
+    }
+    applyKillSwitchUI(newEnabled);
+    toast(
+      newEnabled
+        ? '✅ Trading ENABLED — bot will resume on next scheduled run.'
+        : '⛔ Trading PAUSED — bot will skip all upcoming runs.',
+      newEnabled ? 'success' : 'error'
+    );
+  } catch (e) {
+    toast(`❌ Failed to update kill switch: ${e.message}`, 'error');
+  } finally {
+    track.classList.remove('loading');
+  }
+}
+
+// ── Main refresh ──────────────────────────────────────────────────────────
+async function refreshAll() {
+  document.getElementById('lastRefreshed').textContent = '↻ Refreshing…';
+  document.getElementById('refreshBtn').disabled = true;
+  try {
+    await Promise.all([
+      loadRuns(),
+      loadBetLog(),
+      loadLatestLog(),
+      loadKillSwitch(),
+    ]);
+    document.getElementById('lastRefreshed').textContent =
+      'Updated ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    console.error(e);
+  } finally {
+    document.getElementById('refreshBtn').disabled = false;
+  }
+}
+
+// ── Auto-refresh every 60s ────────────────────────────────────────────────
+function startAutoRefresh() {
+  clearInterval(state.refreshInterval);
+  let secondsLeft = 60;
+  const bar = document.getElementById('refreshBar');
+  const cdEl = document.getElementById('countdown');
+
+  state.refreshInterval = setInterval(() => {
+    secondsLeft--;
+    const pct = ((60 - secondsLeft) / 60) * 100;
+    bar.style.width = pct + '%';
+    if (cdEl) cdEl.textContent = secondsLeft;
+
+    if (secondsLeft <= 0) {
+      secondsLeft = 60;
+      bar.style.width = '0%';
+      refreshAll();
+    }
+  }, 1000);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────
+// Pre-fill token silently
+state.token = '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';
+
+// Initial load
+refreshAll();
+startAutoRefresh();
+</script>
+</body>
+</html>
