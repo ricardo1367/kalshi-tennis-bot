@@ -7,7 +7,7 @@ on:
   # giving ~5 Kalshi checks per minute = effectively every 10 seconds.
   # ─────────────────────────────────────────────────────────────────
   schedule:
-    - cron: "* * * * *"   # Every minute, 24/7
+    - cron: "* * * * *"   # Every minute, 24/7  [activated 2026-04-15]
 
   # Manual trigger — useful for testing or one-off runs
   workflow_dispatch:
