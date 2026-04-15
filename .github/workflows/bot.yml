@@ -1,0 +1,79 @@
+name: Kalshi Sports Bot
+
+on:
+  # ─────────────────────────────────────────────────────────────────
+  # Runs every minute (GitHub Actions minimum cron interval).
+  # Each job runs an internal 10-second polling loop for 50 seconds,
+  # giving ~5 Kalshi checks per minute = effectively every 10 seconds.
+  # ─────────────────────────────────────────────────────────────────
+  schedule:
+    - cron: "* * * * *"   # Every minute, 24/7
+
+  # Manual trigger — useful for testing or one-off runs
+  workflow_dispatch:
+    inputs:
+      demo_mode:
+        description: "Run in demo mode (no real bets)?"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      sport_filter:
+        description: "Comma-separated sports to watch (blank = all). e.g: nfl,nba"
+        required: false
+        default: ""
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2   # Safety: kill job if it hangs
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Write Kalshi private key
+        run: echo "${{ secrets.KALSHI_PRIVATE_KEY }}" > kalshi_private_key.pem
+
+      - name: Run bot
+        env:
+          KALSHI_API_KEY_ID:       ${{ secrets.KALSHI_API_KEY_ID }}
+          KALSHI_PRIVATE_KEY_PATH: kalshi_private_key.pem
+          ODDS_API_KEY:            ${{ secrets.ODDS_API_KEY }}
+          BANKROLL:                ${{ secrets.BANKROLL }}
+          DEMO_MODE:               ${{ github.event.inputs.demo_mode || 'false' }}
+          SPORT_FILTER:            ${{ github.event.inputs.sport_filter || '' }}
+
+          # Polling: check every 10 seconds for 50 seconds per job
+          POLL_INTERVAL_SECONDS:   "10"
+          POLL_DURATION_SECONDS:   "50"
+
+          # Safety rules
+          MIN_WIN_PROBABILITY:     "0.70"   # 70% min probability
+          MIN_EDGE:                "0.03"   # 3% min edge
+          MAX_OPEN_POSITIONS:      "5"
+          MAX_BET_PCT:             "0.10"   # Max 10% of bankroll per bet
+          MAX_HOURS_TO_CLOSE:      "4.0"    # Only bet within 4 hrs of market close
+          KELLY_FRACTION:          "0.5"    # Half Kelly
+
+        run: python kalshi_bot.py
+
+      - name: Upload bet log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bet-log-${{ github.run_id }}
+          path: bot_log.csv
+          if-no-files-found: ignore
+          retention-days: 90   # Keep 3 months of logs
