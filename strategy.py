@@ -20,6 +20,26 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class NearMiss:
+    """
+    A market that is close to triggering but doesn't yet pass all filters.
+    Used to populate the dashboard's Watchlist panel.
+    """
+    ticker: str
+    title: str
+    sport_key: str
+    sharp_prob: float          # Our best probability estimate (leading side)
+    kalshi_price: float        # Kalshi's current price for that side (0–1)
+    edge: float                # sharp_prob - kalshi_price (can be negative)
+    prob_gap: float            # How far below 70% probability (0 = at threshold)
+    edge_gap: float            # How far below 3% edge (0 = at threshold)
+    endgame: bool              # Whether the endgame check passes
+    endgame_reason: str        # Reason string from is_endgame()
+    blocking_rule: str         # Which rule is preventing the bet
+    pinnacle_match: str = ""   # "Team A vs Team B" from Pinnacle
+
+
+@dataclass
 class BetOpportunity:
     """Represents a single validated betting opportunity."""
     ticker: str
@@ -259,3 +279,82 @@ def evaluate_market(
     )
 
     return opportunity
+
+
+# ─────────────────────────────────────────────
+# WATCHLIST / NEAR-MISS DETECTION
+# ─────────────────────────────────────────────
+
+# How close to each threshold before appearing on the watchlist:
+WATCHLIST_PROB_GAP  = 0.10   # show if within 10pp of 70% → prob ≥ 60%
+WATCHLIST_EDGE_GAP  = 0.03   # show if edge within 3pp of minimum → edge ≥ 0%
+
+
+def evaluate_market_watchlist(
+    ticker: str,
+    title: str,
+    kalshi_yes_price_cents: int,
+    sharp_prob_yes: float,
+    sport_key: str = "default",
+    close_time_str: str = "",
+    pinnacle_match: str = "",
+) -> NearMiss | None:
+    """
+    Check if a market is "close" to triggering — within WATCHLIST_PROB_GAP
+    of the probability threshold or WATCHLIST_EDGE_GAP of the edge threshold.
+
+    Returns a NearMiss if the market is worth watching, None otherwise.
+    This is called AFTER evaluate_market returns None (i.e. the bet didn't
+    qualify), so we don't double-count actual bet opportunities.
+    """
+    kalshi_price_yes = kalshi_yes_price_cents / 100.0
+
+    # Evaluate both sides and pick the most promising
+    best_prob = max(sharp_prob_yes, 1 - sharp_prob_yes)
+    if best_prob >= 0.5:
+        if sharp_prob_yes >= 1 - sharp_prob_yes:
+            side_prob  = sharp_prob_yes
+            side_price = kalshi_price_yes
+        else:
+            side_prob  = 1 - sharp_prob_yes
+            side_price = 1 - kalshi_price_yes
+    else:
+        return None  # Neither side is favored — not watchlist-worthy
+
+    # Only watch if we're within WATCHLIST_PROB_GAP of the min threshold
+    prob_gap = max(0.0, config.MIN_WIN_PROBABILITY - side_prob)
+    if prob_gap > WATCHLIST_PROB_GAP:
+        return None
+
+    edge = side_prob - side_price
+    edge_gap = max(0.0, config.MIN_EDGE - edge)
+
+    # Endgame check
+    endgame, endgame_reason = is_endgame(
+        kalshi_yes_price_cents, sport_key, close_time_str
+    )
+
+    # Determine what's blocking a real bet
+    if side_prob < config.MIN_WIN_PROBABILITY:
+        blocking = f"prob {side_prob:.0%} < {config.MIN_WIN_PROBABILITY:.0%} — needs {prob_gap:.1%} more"
+    elif edge < config.MIN_EDGE:
+        blocking = f"edge {edge:.1%} < {config.MIN_EDGE:.1%} — needs {edge_gap:.1%} more"
+    elif not endgame:
+        blocking = f"not end-game: {endgame_reason}"
+    else:
+        blocking = "sizing below minimum"
+
+    return NearMiss(
+        ticker=ticker,
+        title=title,
+        sport_key=sport_key,
+        sharp_prob=round(side_prob, 4),
+        kalshi_price=round(side_price, 4),
+        edge=round(edge, 4),
+        prob_gap=round(prob_gap, 4),
+        edge_gap=round(edge_gap, 4),
+        endgame=endgame,
+        endgame_reason=endgame_reason,
+        blocking_rule=blocking,
+        pinnacle_match=pinnacle_match,
+    )
