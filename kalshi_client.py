@@ -165,6 +165,28 @@ class KalshiClient:
                 if not (0.02 <= ask_f <= 0.98):
                     continue
 
+                # ── Moneyline-only filter ──────────────────────────────
+                # We compare against Pinnacle's H2H (moneyline) odds.
+                # Totals, spreads, 1st-half, and futures markets have
+                # completely different probability structures and would
+                # generate garbage signal when matched against moneylines.
+                ticker = m.get("ticker", "")
+                ticker_upper = ticker.upper()
+                if any(bad in ticker_upper for bad in [
+                    "TOTAL",    # over/under totals
+                    "SPREAD",   # point-spread markets
+                    "1H",       # first-half markets
+                    "TEAMSIN",  # "which teams in X tournament" futures
+                    "TEAMIN",
+                    "WINNER",   # outright tournament winner futures
+                    "ADVANCE",  # will team X advance
+                    "ADVANCE",
+                    "MVESPORT", # esports composite markets
+                    "MVEROSS",  # esports cross-category
+                    "KXWC",     # world cup futures (far future)
+                ]):
+                    continue
+
                 if sport_filter:
                     title = (m.get("title", "") + m.get("subtitle", "")).lower()
                     if not any(kw in title for kw in sport_filter):
@@ -227,11 +249,17 @@ class KalshiClient:
             )
             return {"status": "dry_run", "ticker": ticker}
 
-        # Kalshi API: for a YES order supply yes_price; for NO supply no_price.
-        # yes_price + no_price must equal 100 — we compute the complement but
-        # only pass the field that matches the side to avoid any ambiguity.
-        yes_price = limit_price if side == "yes" else 100 - limit_price
-        no_price  = 100 - yes_price
+        # Kalshi API requires EXACTLY ONE of yes_price/no_price.
+        # Sending both causes: "exactly one of yes_price, no_price,
+        # yes_price_dollars, or no_price_dollars should be provided"
+        #
+        # limit_price is already the price of the side we're buying:
+        #   YES order, limit_price=65 → yes_price=65
+        #   NO  order, limit_price=35 → no_price=35
+        if side == "yes":
+            price_field = {"yes_price": limit_price}
+        else:
+            price_field = {"no_price": limit_price}
 
         body = {
             "ticker": ticker,
@@ -239,8 +267,7 @@ class KalshiClient:
             "type": "limit",
             "side": side,
             "count": count,
-            "yes_price": yes_price,
-            "no_price":  no_price,
+            **price_field,
         }
 
         logger.info(
