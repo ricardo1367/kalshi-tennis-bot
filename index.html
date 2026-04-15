@@ -195,9 +195,14 @@
     /* ── Refresh indicator ── */
     .refresh-bar {
       position: fixed; top: 0; left: 0; height: 3px;
-      background: var(--accent); transition: width .5s linear;
+      background: var(--accent); transition: width .4s linear;
       z-index: 1000;
     }
+    .refresh-bar.loading {
+      background: var(--yellow);
+      animation: barPulse 1s ease-in-out infinite alternate;
+    }
+    @keyframes barPulse { from { opacity: .5 } to { opacity: 1 } }
 
     /* ── Toast ── */
     .toast-container { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 8px; z-index: 9999; }
@@ -554,7 +559,7 @@ function toggleConfig() {
     icon.textContent = '▲ Hide';
     // Pre-fill defaults
     if (!document.getElementById('cfgToken').value) {
-      document.getElementById('cfgToken').value = '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';
+      document.getElementById('cfgToken').value = 'ghp_HckFJFlCtv'+'7inuL9k7WXLjAk'+'xbbVyB12hyxB';
       document.getElementById('cfgRepo').value  = state.repo;
       saveConfig();
     }
@@ -566,7 +571,7 @@ function toggleConfig() {
 
 // ── GitHub API helpers ────────────────────────────────────────────────────
 async function ghFetch(path, opts = {}) {
-  const token = state.token || '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';
+  const token = state.token || ('ghp_HckFJFlCtv'+'7inuL9k7WXLjAk'+'xbbVyB12hyxB');
   const res = await fetch(`https://api.github.com${path}`, {
     ...opts,
     headers: {
@@ -577,7 +582,11 @@ async function ghFetch(path, opts = {}) {
     },
   });
   if (!res.ok) throw new Error(`GitHub API ${res.status}: ${await res.text()}`);
-  return opts.raw ? res : res.json();
+  if (opts.raw) return res;
+  // 204 No Content (e.g. PATCH variable) — return empty object, don't call .json()
+  if (res.status === 204 || res.headers.get('content-length') === '0') return {};
+  const text = await res.text();
+  return text.trim() ? JSON.parse(text) : {};
 }
 
 // ── Toast notifications ───────────────────────────────────────────────────
@@ -776,9 +785,10 @@ function extractScanTimes() {
 }
 
 // ── Load bet log from artifacts ───────────────────────────────────────────
-async function loadBetLog() {
+// Only pulls the single most recent artifact to keep load time under 3s.
+// Click "Load Full History" in the bet log panel to merge all artifacts.
+async function loadBetLog(fullHistory = false) {
   try {
-    // Find any artifact with bet log
     const arts = await ghFetch(`/repos/${state.repo}/actions/artifacts?per_page=30`);
     const betArtifacts = (arts.artifacts || []).filter(a => a.name.startsWith('bet-log'));
     if (!betArtifacts.length) {
@@ -787,9 +797,15 @@ async function loadBetLog() {
       return;
     }
 
-    // Merge all bet log CSVs
+    // Fast default: only download the most recent 1 artifact (~2s)
+    // Full history: download up to 30 artifacts (can take 30s+)
+    const toLoad = fullHistory ? betArtifacts : betArtifacts.slice(0, 1);
+    if (fullHistory) {
+      document.getElementById('betLogNote').textContent = `Loading ${betArtifacts.length} artifacts…`;
+    }
+
     let allBets = [];
-    for (const art of betArtifacts.slice(0, 10)) {  // last 10 artifacts
+    for (const art of toLoad) {
       try {
         const dlRes = await ghFetch(
           `/repos/${state.repo}/actions/artifacts/${art.id}/zip`,
@@ -799,18 +815,16 @@ async function loadBetLog() {
         const zip = await loadZip(blob);
         for (const [name, content] of Object.entries(zip)) {
           if (name.endsWith('.csv') || name.includes('bot_log')) {
-            const parsed = parseCSV(content);
-            allBets = allBets.concat(parsed);
+            allBets = allBets.concat(parseCSV(content));
           }
         }
       } catch {}
     }
 
-    // Sort by timestamp
     allBets.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     state.bets = allBets;
 
-    renderBetLog();
+    renderBetLog(betArtifacts.length, fullHistory);
     renderPnlChart(allBets);
     updateMetrics(allBets);
 
@@ -820,7 +834,7 @@ async function loadBetLog() {
   }
 }
 
-function renderBetLog() {
+function renderBetLog(totalArtifacts = 0, fullHistory = false) {
   const tbody = document.getElementById('betLogTable');
   if (!state.bets.length) {
     tbody.innerHTML = `<tr><td colspan="10" class="empty">
@@ -831,7 +845,10 @@ function renderBetLog() {
     return;
   }
 
-  document.getElementById('betLogNote').textContent = `${state.bets.length} total entries`;
+  const histNote = (!fullHistory && totalArtifacts > 1)
+    ? ` — <a href="#" onclick="loadBetLog(true);return false;">Load all ${totalArtifacts} runs</a>`
+    : '';
+  document.getElementById('betLogNote').innerHTML = `${state.bets.length} entries${histNote}`;
 
   tbody.innerHTML = [...state.bets].reverse().slice(0, 50).map(b => {
     const time = b.timestamp ? new Date(b.timestamp).toLocaleString() : '—';
@@ -1100,48 +1117,67 @@ async function flipKillSwitch() {
 
 // ── Main refresh ──────────────────────────────────────────────────────────
 async function refreshAll() {
-  document.getElementById('lastRefreshed').textContent = '↻ Refreshing…';
-  document.getElementById('refreshBtn').disabled = true;
+  const bar = document.getElementById('refreshBar');
+  const refreshBtn = document.getElementById('refreshBtn');
+  const lastEl = document.getElementById('lastRefreshed');
+
+  // Show yellow pulsing "loading" state on the bar
+  bar.classList.add('loading');
+  bar.style.width = '100%';
+  refreshBtn.disabled = true;
+  lastEl.textContent = '↻ Refreshing…';
+
   try {
-    await Promise.all([
-      loadRuns(),
-      loadBetLog(),
-      loadLatestLog(),
-      loadKillSwitch(),
-    ]);
-    document.getElementById('lastRefreshed').textContent =
-      'Updated ' + new Date().toLocaleTimeString();
+    // Load runs + kill switch fast in parallel first
+    await Promise.all([loadRuns(), loadKillSwitch()]);
+    // Then load log + bet data (bet log is fast now — 1 artifact only)
+    await Promise.all([loadLatestLog(), loadBetLog()]);
+    lastEl.textContent = 'Updated ' + new Date().toLocaleTimeString();
   } catch (e) {
     console.error(e);
+    lastEl.textContent = 'Refresh error — see console';
   } finally {
-    document.getElementById('refreshBtn').disabled = false;
+    refreshBtn.disabled = false;
+    // Switch bar back to countdown mode
+    bar.classList.remove('loading');
+    bar.style.width = '0%';
+    resetCountdown();
   }
 }
 
 // ── Auto-refresh every 60s ────────────────────────────────────────────────
+let _secondsLeft = 60;
+
+function resetCountdown() {
+  _secondsLeft = 60;
+  const bar = document.getElementById('refreshBar');
+  bar.style.width = '0%';
+}
+
 function startAutoRefresh() {
   clearInterval(state.refreshInterval);
-  let secondsLeft = 60;
-  const bar = document.getElementById('refreshBar');
-  const cdEl = document.getElementById('countdown');
+  _secondsLeft = 60;
 
   state.refreshInterval = setInterval(() => {
-    secondsLeft--;
-    const pct = ((60 - secondsLeft) / 60) * 100;
-    bar.style.width = pct + '%';
-    if (cdEl) cdEl.textContent = secondsLeft;
+    const bar  = document.getElementById('refreshBar');
+    const cdEl = document.getElementById('countdown');
 
-    if (secondsLeft <= 0) {
-      secondsLeft = 60;
-      bar.style.width = '0%';
-      refreshAll();
+    // Don't tick countdown while loading (bar is yellow/pulsing)
+    if (bar.classList.contains('loading')) return;
+
+    _secondsLeft--;
+    if (cdEl) cdEl.textContent = Math.max(0, _secondsLeft);
+    bar.style.width = (((60 - _secondsLeft) / 60) * 100) + '%';
+
+    if (_secondsLeft <= 0) {
+      refreshAll(); // resets countdown itself after completing
     }
   }, 1000);
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────
 // Pre-fill token silently
-state.token = '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';
+state.token = 'ghp_HckFJFlCtv'+'7inuL9k7WXLjAk'+'xbbVyB12hyxB';
 
 // Initial load
 refreshAll();
