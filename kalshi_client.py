@@ -12,7 +12,7 @@ import time
 import logging
 import requests
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric import padding as rsa_padding
 from cryptography.hazmat.backends import default_backend
 
 import config
@@ -55,9 +55,13 @@ class KalshiClient:
         timestamp_ms = str(int(time.time() * 1000))
         message = timestamp_ms + method.upper() + full_path
 
+        # Kalshi requires RSA-PSS (not PKCS1v15) with SHA-256 and MGF1
         signature = self.private_key.sign(
             message.encode("utf-8"),
-            padding.PKCS1v15(),
+            rsa_padding.PSS(
+                mgf=rsa_padding.MGF1(hashes.SHA256()),
+                salt_length=rsa_padding.PSS.MAX_LENGTH,
+            ),
             hashes.SHA256(),
         )
         sig_b64 = base64.b64encode(signature).decode("utf-8")
