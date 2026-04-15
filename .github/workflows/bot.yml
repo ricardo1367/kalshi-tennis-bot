@@ -57,9 +57,11 @@ jobs:
           DEMO_MODE:               ${{ github.event.inputs.demo_mode || 'false' }}
           SPORT_FILTER:            ${{ github.event.inputs.sport_filter || '' }}
 
-          # Polling: check every 10 seconds for 50 seconds per job
-          POLL_INTERVAL_SECONDS:   "10"
-          POLL_DURATION_SECONDS:   "50"
+          # Polling: market fetch now happens ONCE at job start (~80s).
+          # Remaining ~30s budget: scan cycle takes ~5s, so we fit ~5 cycles.
+          # POLL_DURATION_SECONDS covers the post-fetch polling window.
+          POLL_INTERVAL_SECONDS:   "8"
+          POLL_DURATION_SECONDS:   "40"
 
           # Kill switch (also enforced via job if: condition above)
           TRADING_ENABLED:         ${{ vars.TRADING_ENABLED || 'true' }}
