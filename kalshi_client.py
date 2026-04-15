@@ -44,10 +44,16 @@ class KalshiClient:
     def _sign_request(self, method: str, path: str) -> dict:
         """
         Generate the auth headers Kalshi requires for every request.
-        They sign: timestamp + method + path
+        Kalshi signs: timestamp_ms + METHOD + FULL_PATH
+        where FULL_PATH includes the /trade-api/v2 prefix, e.g.:
+          /trade-api/v2/portfolio/balance   (NOT just /portfolio/balance)
         """
+        from urllib.parse import urlparse
+        base_path = urlparse(self.base_url).path  # e.g. "/trade-api/v2"
+        full_path = base_path + path               # e.g. "/trade-api/v2/portfolio/balance"
+
         timestamp_ms = str(int(time.time() * 1000))
-        message = timestamp_ms + method.upper() + path
+        message = timestamp_ms + method.upper() + full_path
 
         signature = self.private_key.sign(
             message.encode("utf-8"),
@@ -63,21 +69,37 @@ class KalshiClient:
             "Content-Type": "application/json",
         }
 
-    def _get(self, path: str, params: dict = None):
-        """Make an authenticated GET request."""
+    def _get(self, path: str, params: dict = None, _retry: int = 3):
+        """Make an authenticated GET request with retry on 429."""
         headers = self._sign_request("GET", path)
         url = self.base_url + path
-        resp = self.session.get(url, headers=headers, params=params)
+        for attempt in range(_retry):
+            resp = self.session.get(url, headers=headers, params=params)
+            if resp.status_code == 429:
+                wait = 2 ** attempt  # 1s, 2s, 4s
+                logger.warning(f"Rate limited on GET {path} — waiting {wait}s (attempt {attempt+1}/{_retry})")
+                time.sleep(wait)
+                headers = self._sign_request("GET", path)  # fresh timestamp
+                continue
+            resp.raise_for_status()
+            return resp.json()
         resp.raise_for_status()
-        return resp.json()
 
-    def _post(self, path: str, body: dict):
-        """Make an authenticated POST request."""
+    def _post(self, path: str, body: dict, _retry: int = 3):
+        """Make an authenticated POST request with retry on 429."""
         headers = self._sign_request("POST", path)
         url = self.base_url + path
-        resp = self.session.post(url, headers=headers, json=body)
+        for attempt in range(_retry):
+            resp = self.session.post(url, headers=headers, json=body)
+            if resp.status_code == 429:
+                wait = 2 ** attempt
+                logger.warning(f"Rate limited on POST {path} — waiting {wait}s (attempt {attempt+1}/{_retry})")
+                time.sleep(wait)
+                headers = self._sign_request("POST", path)
+                continue
+            resp.raise_for_status()
+            return resp.json()
         resp.raise_for_status()
-        return resp.json()
 
     # ─────────────────────────────────────────
     # MARKET METHODS
