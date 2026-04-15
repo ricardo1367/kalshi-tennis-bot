@@ -282,8 +282,10 @@ def run_scan_cycle(
 
         matched += 1
 
-        sport_key = detect_sport_key(market, pinnacle_odds)
-        close_time = market.get("close_time", "")
+        # Use sport_key and commence_time from Pinnacle match (authoritative),
+        # not from keyword guessing or Kalshi's close_time.
+        sport_key = match_data.get("sport_key", "default")
+        commence_time = match_data.get("commence_time", "")  # Pinnacle game start
 
         # Check if we already hold a position in this market
         existing_side = position_map.get(ticker, None)
@@ -297,7 +299,7 @@ def run_scan_cycle(
             bankroll=bankroll,
             open_positions=open_count + bets_placed,
             sport_key=sport_key,
-            close_time_str=close_time,
+            commence_time_str=commence_time,
             existing_position_side=existing_side,
         )
 
@@ -309,7 +311,7 @@ def run_scan_cycle(
                 kalshi_yes_price_cents=yes_ask,
                 sharp_prob_yes=match_data["sharp_prob_yes"],
                 sport_key=sport_key,
-                close_time_str=close_time,
+                commence_time_str=commence_time,
                 pinnacle_match=match_data.get("pinnacle_match", ""),
             )
             if near:
