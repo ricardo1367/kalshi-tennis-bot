@@ -161,7 +161,14 @@ def detect_sport_key(market: dict, all_odds: list) -> str:
 def match_market_to_pinnacle(market: dict, all_odds: list) -> dict | None:
     """
     Match a Kalshi market to a Pinnacle line.
-    Returns {"sharp_prob_yes": float, "pinnacle_match": str} or None.
+
+    CRITICAL FILTER: Only returns a match if Pinnacle's commence_time is in the
+    past — meaning the game has actually STARTED. Pre-game markets (even with
+    high prices for heavy favorites) are excluded entirely. This prevents betting
+    on future markets that Kalshi has priced but aren't yet in play.
+
+    Returns {"sharp_prob_yes": float, "pinnacle_match": str,
+             "sport_key": str, "commence_time": str} or None.
     """
     from odds_client import OddsClient
     odds_client = OddsClient()
@@ -172,32 +179,51 @@ def match_market_to_pinnacle(market: dict, all_odds: list) -> dict | None:
 
     team_a, team_b = names
 
-    # Try matching team A first
+    # Try matching team A first, then team B
     result = odds_client.find_team_in_matches(team_a, all_odds)
     if result:
         match = result["match"]
         side = result["side"]
         sharp_prob_yes = match["home_prob"] if side == "home" else match["away_prob"]
     else:
-        # Try team B
         result = odds_client.find_team_in_matches(team_b, all_odds)
         if not result:
             return None
         match = result["match"]
         side = result["side"]
-        # YES = team A wins, team B is the other side
+        # YES = team A wins → team B is the other side
         sharp_prob_yes = match["away_prob"] if side == "home" else match["home_prob"]
+
+    # ── KEY SAFETY CHECK: game must have started ─────────────────────
+    # Pinnacle's commence_time tells us when the game was scheduled to start.
+    # If it's still in the future, this is a pre-game market — skip it.
+    # Pre-game markets can have high prices (heavy favorites) that falsely
+    # trigger our endgame threshold, leading to bets on future events.
+    commence_time_str = match.get("commence_time", "")
+    if commence_time_str:
+        try:
+            from datetime import datetime, timezone
+            commence_time = datetime.fromisoformat(
+                commence_time_str.replace("Z", "+00:00")
+            )
+            if commence_time > datetime.now(timezone.utc):
+                # Game hasn't started yet — skip
+                return None
+        except (ValueError, TypeError):
+            pass  # If we can't parse it, allow it through
 
     return {
         "sharp_prob_yes":  sharp_prob_yes,
         "pinnacle_match":  f"{match['home_team']} vs {match['away_team']}",
         "sport_key":       match.get("sport_key", "default"),
+        "commence_time":   commence_time_str,
     }
 
 
 # ─────────────────────────────────────────────
 # SINGLE SCAN CYCLE
-# Called every POLL_INTERVAL_SECONDS
+# Called every POLL_INTERVAL_SECONDS.
+# Markets are fetched ONCE per job and passed in (not re-fetched each cycle).
 # ─────────────────────────────────────────────
 
 def run_scan_cycle(
@@ -205,6 +231,7 @@ def run_scan_cycle(
     odds_client: OddsClient,
     bankroll: float,
     pinnacle_odds: list,
+    all_markets: list,      # pre-fetched market list (passed in, not re-fetched)
     cycle_num: int,
 ) -> tuple[int, float]:
     """
@@ -214,21 +241,14 @@ def run_scan_cycle(
     cycle_start = time.time()
     logger.info(f"─── Scan cycle #{cycle_num} ───────────────────────────────")
 
-    # Fetch current open positions (for conflict detection)
-    position_map = build_position_map(kalshi)
-    open_count = len(position_map)
-    logger.info(f"Open positions: {open_count}/{config.MAX_OPEN_POSITIONS}")
-
-    # Fetch open Kalshi markets closing within our window
-    try:
-        all_markets = kalshi.get_all_markets(sport_filter=config.SPORT_FILTER)
-    except Exception as e:
-        logger.error(f"Failed to fetch Kalshi markets: {e}")
-        return 0, bankroll
-
     if not all_markets:
         logger.info("No qualifying markets found on Kalshi.")
         return 0, bankroll
+
+    # Fetch current open positions (for conflict detection)
+    position_map = build_position_map(kalshi)
+    open_count = len(position_map)
+    logger.info(f"Open positions: {open_count}/{config.MAX_OPEN_POSITIONS} | Markets: {len(all_markets)}")
 
     bets_placed = 0
     evaluated = 0
@@ -368,6 +388,21 @@ def run():
         logger.info("No live odds available right now. Exiting.")
         return
 
+    # Fetch Kalshi markets ONCE per job.
+    # This takes ~80s for 31k markets — we must not do it every cycle.
+    # Markets don't change dramatically within 50 seconds.
+    logger.info("Fetching Kalshi markets snapshot...")
+    try:
+        all_markets = kalshi.get_all_markets(sport_filter=config.SPORT_FILTER)
+        logger.info(f"Got {len(all_markets)} tradeable Kalshi markets")
+    except Exception as e:
+        logger.error(f"Could not fetch Kalshi markets: {e}")
+        return
+
+    if not all_markets:
+        logger.info("No tradeable markets on Kalshi right now. Exiting.")
+        return
+
     # ── Polling loop ────────────────────────────────────────────────
     start_time = time.time()
     total_bets = 0
@@ -379,7 +414,7 @@ def run():
             break
 
         bets, bankroll = run_scan_cycle(
-            kalshi, odds_client, bankroll, pinnacle_odds, cycle
+            kalshi, odds_client, bankroll, pinnacle_odds, all_markets, cycle
         )
         total_bets += bets
         cycle += 1
