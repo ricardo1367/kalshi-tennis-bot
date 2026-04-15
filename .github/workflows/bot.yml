@@ -68,7 +68,7 @@ jobs:
 
           # Safety rules
           MIN_WIN_PROBABILITY:     "0.70"   # 70% min probability
-          MIN_EDGE:                "0.03"   # 3% min edge
+          MIN_EDGE:                "0.02"   # 2% min edge
           MAX_OPEN_POSITIONS:      "5"
           MAX_BET_PCT:             "0.10"   # Max 10% of bankroll per bet
           MAX_HOURS_TO_CLOSE:      "4.0"    # Only bet within 4 hrs of market close
