@@ -76,11 +76,13 @@ jobs:
 
         run: python kalshi_bot.py
 
-      - name: Upload bet log
+      - name: Upload bet log and watchlist
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: bet-log-${{ github.run_id }}
-          path: bot_log.csv
+          path: |
+            bot_log.csv
+            watchlist.json
           if-no-files-found: ignore
           retention-days: 90   # Keep 3 months of logs
