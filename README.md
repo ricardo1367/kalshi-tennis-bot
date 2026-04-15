@@ -100,3 +100,5 @@ All settings live in `config.py`. The key ones:
 - Always run in **demo mode first** to validate the bot is working correctly
 - Past performance of any betting strategy does not guarantee future results
 - Never bet more than you can afford to lose
+
+<!-- cron-activated -->
