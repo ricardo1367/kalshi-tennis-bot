@@ -28,6 +28,7 @@ ODDS_API_KEY = os.getenv("ODDS_API_KEY", "your_odds_api_key_here")
 ODDS_API_BASE_URL = "https://api.the-odds-api.com/v4"
 REFERENCE_BOOKMAKER = os.getenv("REFERENCE_BOOKMAKER", "pinnacle")
 
+BET_LOG_DIR = "."  # directory for watchlist.json + bet log artifacts
 # ─────────────────────────────────────────────
 # SPORT FILTER
 # None = scan all sports. Example: "nfl,nba" to narrow scope.
