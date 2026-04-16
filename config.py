@@ -10,6 +10,7 @@ import os
 # ─────────────────────────────────────────────
 KALSHI_API_KEY_ID = os.getenv("KALSHI_API_KEY_ID", "your_api_key_id_here")
 KALSHI_PRIVATE_KEY_PATH = os.getenv("KALSHI_PRIVATE_KEY_PATH", "kalshi_private_key.pem")
+MAX_HOURS_TO_CLOSE = 24  # legacy log-format compat; actual endgame logic in strategy.py
 
 DEMO_MODE = os.getenv("DEMO_MODE", "true").lower() == "true"
 
