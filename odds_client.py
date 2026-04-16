@@ -238,3 +238,48 @@ class OddsClient:
         if result:
             return {"match": result["match"], "player_side": result["side"]}
         return None
+
+    def get_live_game_states(self, sport_keys: list[str]) -> dict[str, str]:
+        """
+        Fetch the current game state (period/inning/set/round) for in-progress events.
+
+        Returns a dict mapping event_id -> description string, e.g.:
+          {"abc123": "3rd Period", "def456": "8th Inning", "ghi789": "Set 3"}
+
+        The Odds API /scores response has no top-level "description" field.
+        The current period/inning/set lives in the "scores" array as the last
+        entry's "name" field (e.g. "4th Quarter", "8th Inning", "Set 3").
+
+        API cost: 1 request per sport_key. Call with only the sport_keys that
+        appeared in today's live Pinnacle odds to minimise quota use.
+        """
+        states: dict[str, str] = {}
+        for sport_key in sport_keys:
+            if sport_key not in SPORT_KEYS:
+                continue
+            try:
+                data = self._get(
+                    f"/sports/{sport_key}/scores",
+                    params={"daysFrom": "1"},
+                )
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code in (404, 422):
+                    continue  # sport has no scores available
+                logger.debug(f"Scores fetch failed for {sport_key}: {e}")
+                continue
+            except Exception as e:
+                logger.debug(f"Scores fetch failed for {sport_key}: {e}")
+                continue
+
+            for event in data:
+                if event.get("completed"):
+                    continue  # skip finished games
+                event_id = event.get("id", "")
+                # Current period/inning/set is the last entry's "name" in the scores array
+                scores = event.get("scores") or []
+                desc = scores[-1].get("name", "") if scores else ""
+                if event_id and desc:
+                    states[event_id] = desc
+
+        logger.info(f"Live game states: {len(states)} in-progress events across {len(sport_keys)} sports")
+        return states
