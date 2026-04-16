@@ -20,6 +20,7 @@ SAFETY RULES (all enforced before any bet):
 import csv
 import logging
 import os
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -95,6 +96,117 @@ def build_position_map(kalshi: KalshiClient) -> dict[str, str]:
     except Exception as e:
         logger.warning(f"Could not fetch open positions: {e}")
     return position_map
+
+
+# âââââââââââââââââââââââââââââââââââââââââââââ
+# KALSHI TICKER PARSING
+# Kalshi encodes sport + game time in the ticker.
+# Format: <series>-<YY><MMM><DD><HHMM><teams>
+#   e.g.  kxmlbgame-26apr161410tbcws
+#         â sport=baseball_mlb, commence=2026-04-16T18:10Z (14:10 ET + 4h)
+# âââââââââââââââââââââââââââââââââââââââââââââ
+
+_TICKER_SPORT_MAP = {
+    "kxmlbgame":  "baseball_mlb",
+    "kxnhlgame":  "icehockey_nhl",
+    "kxnbagame":  "basketball_nba",
+    "kxwnbagame": "basketball_wnba",
+    "kxnflgame":  "americanfootball_nfl",
+    "kxncaafgame":"americanfootball_ncaaf",
+    "kxncaabgame":"basketball_ncaab",
+    "kxmlsgame":  "soccer_usa_mls",
+    "kxeplgame":  "soccer_epl",
+    "kxmmagame":  "mma_mixed_martial_arts",
+}
+
+_MONTH_NUM = {
+    "jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,
+    "jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12,
+}
+
+
+def _ticker_sport_key(ticker: str) -> str:
+    """Return the sport_key encoded in a Kalshi ticker prefix, or 'default'."""
+    t = ticker.lower()
+    for prefix, key in _TICKER_SPORT_MAP.items():
+        if t.startswith(prefix):
+            return key
+    return "default"
+
+
+def _ticker_commence_time(ticker: str) -> str:
+    """
+    Parse the game start time embedded in a Kalshi ticker and return an ISO UTC string.
+
+    Kalshi format: <series>-<YY><MMM><DD><HHMM><teams>
+    Example:  kxmlbgame-26apr161410tbcws
+              YY=26 â 2026, MMM=apr â 04, DD=16, HH=14, MM=10
+              Assumes US Eastern Time (EDT = UTC-4 in spring/summer).
+    Returns "" if the ticker doesn't match the expected pattern.
+    """
+    m = re.search(r'-(\d{2})([a-z]{3})(\d{2})(\d{2})(\d{2})', ticker.lower())
+    if not m:
+        return ""
+    yy, mon_str, dd, hh, mm = m.group(1), m.group(2), m.group(3), m.group(4), m.group(5)
+    month = _MONTH_NUM.get(mon_str, 0)
+    if not month:
+        return ""
+    try:
+        year   = 2000 + int(yy)
+        day    = int(dd)
+        hour   = int(hh)
+        minute = int(mm)
+        # Kalshi game times are in US Eastern Time.
+        # AprâOct = EDT (UTC-4); NovâMar = EST (UTC-5). Use 4h offset as approximation.
+        utc_offset = 5 if month in (11, 12, 1, 2, 3) else 4
+        utc_hour = hour + utc_offset
+        # Handle midnight rollover (simplified â ignores month-end edge cases)
+        if utc_hour >= 24:
+            utc_hour -= 24
+            day += 1
+        return f"{year:04d}-{month:02d}-{day:02d}T{utc_hour:02d}:{minute:02d}:00Z"
+    except (ValueError, TypeError):
+        return ""
+
+
+def _make_kalshi_fallback(m!rket: dict, ticker: str, yes_ask_cents: int) -> dict | None:
+    """
+    Build a probability estimate from the Kalshi market price when no external
+    sharp line is available (e.g., Pinnacle suspends live MLB/NHL odds during play).
+
+    Uses Kalshi's YES ask price as the probability proxy.
+    Only activates when one side exceeds KALSHI_FALLBACK_MIN_PROBABILITY (80%).
+    Also requires extractable team names to avoid futures/prop markets.
+
+    Returns a match_data dict (same shape as match_market_to_pinnacle) or None.
+    """
+    yes_price = yes_ask_cents / 100.0
+
+    # Only use fallback when the market is already decisive (â¥ 80% one side)
+    best_prob = max(yes_price, 1 - yes_price)
+    if best_prob < config.KALSHI_FALLBACK_MIN_PROBABILITY:
+        return None
+
+    # Must have two team names â guards against futures/props/non-game markets
+    if not extract_team_names(market):
+        return None
+
+    sport_key     = _ticker_sport_key(ticker)
+    commence_time = _ticker_commence_time(ticker)
+
+    logger.debug(
+        f"Kalshi fallback for '{market.get('title','')}' | "
+        f"price={yes_price:.0%} sport={sport_key} commence={commence_time}"
+    )
+
+    return {
+        "sharp_prob_yes": yes_price,
+        "pinnacle_match": "Kalshi price fallback (no Pinnacle line)",
+        "sport_key":      sport_key,
+        "commence_time":  commence_time,
+        "event_id":       "",
+        "kalshi_fallback": True,
+    }
 
 
 # âââââââââââââââââââââââââââââââââââââââââââââ
@@ -225,7 +337,7 @@ def match_market_to_pinnacle(market: dict, all_odds: list) -> dict | None:
 # SINGLE SCAN CYCLE
 # Called every POLL_INTERVAL_SECONDS.
 # Markets are fetched ONCE per job and passed in (not re-fetched each cycle).
-# âââââââââââââââââââââââââââââââââââââââââââââ
+# ââââââââââââââââââââââââââââââââââââââââââââ
 
 def run_scan_cycle(
     kalshi: KalshiClient,
@@ -290,7 +402,11 @@ def run_scan_cycle(
         # Match to Pinnacle odds
         match_data = match_market_to_pinnacle(market, pinnacle_odds)
         if not match_data:
-            continue
+            # Pinnacle has no line (common for live MLB/NHL â they suspend during play).
+            # Fall back to using Kalshi's own price as the probability proxy.
+            match_data = _make_kalshi_fallback(market, ticker, yes_ask)
+            if not match_data:
+                continue
 
         matched += 1
 
@@ -321,6 +437,7 @@ def run_scan_cycle(
             commence_time_str=commence_time,
             game_state=game_state,
             existing_position_side=existing_side,
+            kalshi_fallback=match_data.get("kalshi_fallback", False),
         )
 
         if not opportunity:
