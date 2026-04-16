@@ -61,6 +61,12 @@ MIN_WIN_PROBABILITY = float(os.getenv("MIN_WIN_PROBABILITY", "0.70"))   # 70% mi
 # This ensures we're getting good value even on high-probability bets.
 MIN_EDGE = float(os.getenv("MIN_EDGE", "0.03"))   # Lowered to 3% since probability filter is strict
 
+# Kalshi-price fallback: used when no Pinnacle/sharp line is available
+# (e.g., Pinnacle suspends live odds for MLB/NHL during play).
+# Requires a stricter probability threshold since Kalshi is less sharp than Pinnacle.
+# Edge check is skipped; flat MIN_BET_DOLLARS is used instead of Kelly sizing.
+KALSHI_FALLBACK_MIN_PROBABILITY = float(os.getenv("KALSHI_FALLBACK_MIN_PROBABILITY", "0.80"))
+
 # âââââââââââââââââââââââââââââââââââââââââââââ
 # END-GAME DETECTION â TIME BASED
 #
